@@ -1,0 +1,20 @@
+# 1. Ignore CLion's hidden IDE settings
+.idea/
+
+# 2. Ignore ALL CMake build folders (This blocks the thousands of "hell files"!)
+cmake-build-*/
+build/
+out/
+
+# 3. Ignore the C++ compiled programs and libraries
+*.exe
+*.dll
+*.o
+*.obj
+
+# 4. Ignore the output folder where your JSON and PNG files are generated
+output/
+
+# 5. Ignore random Windows system files
+Thumbs.db
+Desktop.ini

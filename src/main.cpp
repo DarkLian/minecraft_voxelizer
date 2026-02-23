@@ -14,24 +14,10 @@
 #include <windows.h>
 #endif
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CLI Usage:
-//   mc_voxelizer <input.obj|.gltf|.glb> [options]
-//
-// Options:
-//   --quality   1-5     Voxel resolution (default: 3 = 32³)
-//                         1=16³  2=24³  3=32³  4=48³  5=64³
-//   --output    <dir>   Output directory (default: ./output)
-//   --name      <str>   Model name, used for filenames (default: input filename)
-//   --modid     <str>   Mod namespace for texture path (default: "mymod")
-//   --solid             Enable interior flood-fill (default: off)
-//   --help              Show this message
-// ─────────────────────────────────────────────────────────────────────────────
-
 struct CliArgs {
     std::string inputPath;
     std::string outputDir = "./output";
-    std::string modelName; // derived from inputPath if not set
+    std::string modelName;
     std::string modId = "mymod";
     int quality = 3;
     bool solidFill = false;
@@ -65,13 +51,8 @@ static void printUsage() {
             "  <output>/<name>.png    Texture atlas\n";
 }
 
-static CliArgs parseArgs(int argc, char **argv) {
+static CliArgs parseArgs(const int argc, char **argv) {
     CliArgs args;
-
-    if (argc < 2) {
-        printUsage();
-        std::exit(0);
-    }
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -79,7 +60,8 @@ static CliArgs parseArgs(int argc, char **argv) {
         if (arg == "--help" || arg == "-h") {
             args.help = true;
             return args;
-        } else if (arg == "--quality" && i + 1 < argc) {
+        }
+        if (arg == "--quality" && i + 1 < argc) {
             args.quality = std::stoi(argv[++i]);
             if (args.quality < 1 || args.quality > 5)
                 throw std::invalid_argument("--quality must be 1–5.");
@@ -111,24 +93,96 @@ static CliArgs parseArgs(int argc, char **argv) {
     return args;
 }
 
+static CliArgs interactivePrompt() {
+    CliArgs args;
+    std::cout << "--- Interactive Mode ---\n";
+    std::cout << "Drag and drop your 3D model file here (or type the path), then press Enter:\n> ";
+    std::string path;
+    std::getline(std::cin, path);
+
+    // Clean up Windows drag-and-drop quotes
+    if (!path.empty() && path.front() == '"' && path.back() == '"') {
+        path = path.substr(1, path.size() - 2);
+    }
+    args.inputPath = path;
+
+    if (args.inputPath.empty()) {
+        throw std::invalid_argument("No input file specified.");
+    }
+
+    std::cout << "Enter voxel resolution quality (1-5) [Press Enter for default 3]:\n> ";
+    std::string q;
+    std::getline(std::cin, q);
+    if (!q.empty()) {
+        args.quality = std::stoi(q);
+        if (args.quality < 1 || args.quality > 5) {
+            throw std::invalid_argument("--quality must be 1-5.");
+        }
+    }
+
+    std::cout << "Enable solid interior fill? (y/n) [Press Enter for default n]:\n> ";
+    std::string s;
+    std::getline(std::cin, s);
+    if (s == "y" || s == "Y") {
+        args.solidFill = true;
+    }
+
+    // --- NEW: Mod ID Prompt ---
+    std::cout << "Enter mod ID [Press Enter for default 'darkaddons']:\n> ";
+    std::string m;
+    std::getline(std::cin, m);
+    if (!m.empty()) {
+        args.modId = m;
+    } else {
+        args.modId = "darkaddons"; // Automatically assumes your mod!
+    }
+
+    // --- NEW: Model Name Prompt ---
+    std::cout << "Enter model name [Press Enter to use filename]:\n> ";
+    std::string n;
+    std::getline(std::cin, n);
+    if (!n.empty()) {
+        args.modelName = n;
+    } else {
+        // Fallback to deriving from filename if they just press Enter
+        args.modelName = std::filesystem::path(args.inputPath).stem().string();
+    }
+
+    std::cout << "\nStarting generation...\n";
+    return args;
+}
+
+// A helper to stop the window from closing instantly
+static void pauseConsole() {
+    std::cout << "\nPress Enter to exit...";
+    std::string dummy;
+    std::getline(std::cin, dummy);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main pipeline
 // ─────────────────────────────────────────────────────────────────────────────
-int main(int argc, char **argv) {
+int main(const int argc, char **argv) {
 #ifdef _WIN32
-    // Force Windows console to use UTF-8 so the box-drawing characters render correctly
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::cout << "╔══════════════════════════════════════╗\n"
-              << "║   Minecraft Voxelizer  v1.0.0        ║\n"
-              << "╚══════════════════════════════════════╝\n\n";
+            << "║   Minecraft Voxelizer  v1.0.0        ║\n"
+            << "╚══════════════════════════════════════╝\n\n";
 
     CliArgs args;
     try {
-        args = parseArgs(argc, argv);
+        // IF double-clicked (no arguments), run interactive mode!
+        if (argc < 2) {
+            args = interactivePrompt();
+        } else {
+            // Otherwise, read the terminal commands normally
+            args = parseArgs(argc, argv);
+        }
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << "\n\n";
         printUsage();
+        pauseConsole(); // Pause on error
         return 1;
     }
 
@@ -180,6 +234,7 @@ int main(int argc, char **argv) {
             std::cerr << "Error: no quads generated. "
                     << "The mesh may be too small for the chosen quality level, "
                     << "or the input file has geometry issues.\n";
+            pauseConsole();
             return 1;
         }
 
@@ -204,8 +259,11 @@ int main(int argc, char **argv) {
                 << "  2. Copy " << args.modelName << ".png to:\n"
                 << "       src/main/resources/assets/" << args.modId << "/textures/item/\n"
                 << "  3. Open the .json in Blockbench to adjust display transforms.\n";
+
+        pauseConsole(); // Pause on success
     } catch (const std::exception &e) {
         std::cerr << "\nFatal error: " << e.what() << "\n";
+        pauseConsole(); // Pause on fatal error
         return 1;
     }
 

@@ -43,9 +43,10 @@ file(GLOB_RECURSE SOURCES
     "src/*.cpp"
 )
 
-add_executable(mc_voxelizer ${SOURCES})
+add_executable(mc_voxelizer ${SOURCES} app.rc)
 
 target_include_directories(mc_voxelizer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     src/
     ${stb_SOURCE_DIR}
     ${tinygltf_SOURCE_DIR}

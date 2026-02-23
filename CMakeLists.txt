@@ -64,5 +64,10 @@ target_compile_options(mc_voxelizer PRIVATE
     $<$<CONFIG:Debug>:-g -Wall -Wextra>
 )
 
+# Force static linking on Windows so it doesn't require MinGW DLLs to run
+if(WIN32)
+    target_link_options(mc_voxelizer PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
 # ── Install / output dir ───────────────────────────────────────────────────────
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

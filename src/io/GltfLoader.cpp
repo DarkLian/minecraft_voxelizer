@@ -6,41 +6,51 @@
 #include "io/GltfLoader.hpp"
 #include <stdexcept>
 #include <iostream>
+#include <filesystem>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Texture loading notes
 // ─────────────────────────────────────────────────────────────────────────────
 // tinygltf (with STB_IMAGE_IMPLEMENTATION defined above) automatically decodes
-// every image referenced by the model — whether embedded as base64 in a .gltf
-// file, or packed into the binary buffer of a .glb file — into raw pixel data
-// stored in tinygltf::Image::image (vector<uint8_t>).
+// every image referenced by the model into raw pixel data stored in
+// tinygltf::Image::image (vector<uint8_t>). This works for all three cases:
 //
-// We therefore never need to call stbi_load ourselves for glTF/glb; we just
-// copy the already-decoded pixels into our Mesh::Material::TextureImage.
+//   .glb                 — images embedded in the binary buffer
+//   .gltf + external     — "uri": "textures/diffuse.png" resolved from base dir
+//   .gltf + base64       — "uri": "data:image/png;base64,..." decoded inline
+//
+// IMPORTANT: tinygltf resolves external image URIs relative to the directory
+// containing the .gltf file, which it derives from the path we pass to
+// LoadASCIIFromFile(). If we pass a relative path and the working directory
+// differs from the file's actual location, image resolution silently fails
+// (img.image is empty) and every texture falls back to baseColor (white).
+// We therefore convert the input path to an absolute path first.
 //
 // Component count from tinygltf:
-//   1 = greyscale    → replicate R into R,G,B and set A=255
-//   2 = grey+alpha   → replicate R into R,G,B, keep A
-//   3 = RGB          → add A=255
-//   4 = RGBA         → copy directly
-//
-// All cases are normalised to RGBA (4 channels) to match what
-// Mesh::sampleColor expects.
+//   1 = greyscale        → replicate into R,G,B; A = 255
+//   2 = greyscale+alpha  → replicate into R,G,B; keep A
+//   3 = RGB              → A = 255
+//   4 = RGBA             → copy directly
+// All cases are normalised to RGBA (4 channels) for Mesh::sampleColor.
 // ─────────────────────────────────────────────────────────────────────────────
 
 Mesh GltfLoader::load(const std::string &path) {
     std::cout << "[GltfLoader] Loading: " << path << "\n";
+
+    // Resolve to absolute path so external image URIs in .gltf files are
+    // found correctly regardless of the current working directory.
+    const std::string absPath = std::filesystem::absolute(path).string();
 
     tinygltf::Model gltfModel;
     tinygltf::TinyGLTF loader;
     std::string err, warn;
 
     bool ok;
-    std::string ext = path.substr(path.rfind('.') + 1);
+    const std::string ext = absPath.substr(absPath.rfind('.') + 1);
     if (ext == "glb")
-        ok = loader.LoadBinaryFromFile(&gltfModel, &err, &warn, path);
+        ok = loader.LoadBinaryFromFile(&gltfModel, &err, &warn, absPath);
     else
-        ok = loader.LoadASCIIFromFile(&gltfModel, &err, &warn, path);
+        ok = loader.LoadASCIIFromFile(&gltfModel, &err, &warn, absPath);
 
     if (!warn.empty()) std::cerr << "[GltfLoader] Warning: " << warn << "\n";
     if (!ok)
@@ -49,7 +59,7 @@ Mesh GltfLoader::load(const std::string &path) {
     Mesh mesh;
 
     // ── Materials ─────────────────────────────────────────────────────────────
-    // Index 0 is the white fallback; glTF materials start at index 1.
+    // Index 0 is always the white fallback; glTF materials start at index 1.
     {
         Mesh::Material def;
         def.name      = "default";
@@ -64,7 +74,7 @@ Mesh GltfLoader::load(const std::string &path) {
 
         // ── Try to load the base-color texture ────────────────────────────────
         const auto &pbr = gltfMat.pbrMetallicRoughness;
-        int texIdx = pbr.baseColorTexture.index; // -1 if not set
+        int texIdx      = pbr.baseColorTexture.index; // -1 if not set
 
         if (texIdx >= 0 && texIdx < static_cast<int>(gltfModel.textures.size())) {
             int imgIdx = gltfModel.textures[texIdx].source;
@@ -72,14 +82,13 @@ Mesh GltfLoader::load(const std::string &path) {
             if (imgIdx >= 0 && imgIdx < static_cast<int>(gltfModel.images.size())) {
                 const tinygltf::Image &img = gltfModel.images[imgIdx];
 
-                // img.image is non-empty only when tinygltf successfully decoded it
                 if (!img.image.empty() && img.width > 0 && img.height > 0) {
                     mat.texture.width  = img.width;
                     mat.texture.height = img.height;
 
                     // Normalise to 4-channel RGBA
-                    int ch = img.component; // 1, 2, 3 or 4
-                    int npix = img.width * img.height;
+                    const int ch   = img.component;
+                    const int npix = img.width * img.height;
                     mat.texture.pixels.resize(static_cast<size_t>(npix * 4));
 
                     for (int i = 0; i < npix; i++) {
@@ -87,22 +96,10 @@ Mesh GltfLoader::load(const std::string &path) {
                         const uint8_t *src = img.image.data() + i * ch;
 
                         switch (ch) {
-                            case 1:                       // greyscale
-                                r = g = b = src[0];
-                                a = 255;
-                                break;
-                            case 2:                       // greyscale + alpha
-                                r = g = b = src[0];
-                                a = src[1];
-                                break;
-                            case 3:                       // RGB
-                                r = src[0]; g = src[1]; b = src[2];
-                                a = 255;
-                                break;
-                            default:                      // RGBA (ch == 4)
-                                r = src[0]; g = src[1];
-                                b = src[2]; a = src[3];
-                                break;
+                            case 1:  r = g = b = src[0]; a = 255;    break;
+                            case 2:  r = g = b = src[0]; a = src[1]; break;
+                            case 3:  r = src[0]; g = src[1]; b = src[2]; a = 255; break;
+                            default: r = src[0]; g = src[1]; b = src[2]; a = src[3]; break;
                         }
 
                         uint8_t *dst = mat.texture.pixels.data() + i * 4;
@@ -111,8 +108,8 @@ Mesh GltfLoader::load(const std::string &path) {
 
                     std::cout << "[GltfLoader]   Loaded texture for material '"
                               << mat.name << "': "
-                              << img.width << "×" << img.height
-                              << " (" << ch << "ch → RGBA)\n";
+                              << img.width << "x" << img.height
+                              << " (" << ch << "ch -> RGBA)\n";
                 } else {
                     std::cerr << "[GltfLoader]   Warning: image " << imgIdx
                               << " for material '" << mat.name
@@ -166,7 +163,7 @@ Mesh GltfLoader::load(const std::string &path) {
                 mesh.vertices.push_back(v);
             }
 
-            // +1 offset because mesh.materials[0] is our white fallback
+            // +1 offset because mesh.materials[0] is the white fallback
             int matIndex = (prim.material >= 0) ? prim.material + 1 : 0;
 
             if (prim.indices >= 0) {
@@ -187,7 +184,7 @@ Mesh GltfLoader::load(const std::string &path) {
 
                 for (size_t i = 0; i + 2 < idxAcc.count; i += 3) {
                     Mesh::Triangle tri;
-                    tri.vertexIndices  = {
+                    tri.vertexIndices = {
                         baseVertex + getIndex(i),
                         baseVertex + getIndex(i + 1),
                         baseVertex + getIndex(i + 2)

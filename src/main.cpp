@@ -10,6 +10,9 @@
 #include <filesystem>
 #include <stdexcept>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLI Usage:
@@ -112,9 +115,13 @@ static CliArgs parseArgs(int argc, char **argv) {
 // Main pipeline
 // ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char **argv) {
-    std::cout << "========================================\n"
-              << "    Minecraft Voxelizer  v1.0.0         \n"
-              << "========================================\n\n";
+#ifdef _WIN32
+    // Force Windows console to use UTF-8 so the box-drawing characters render correctly
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+    std::cout << "╔══════════════════════════════════════╗\n"
+              << "║   Minecraft Voxelizer  v1.0.0        ║\n"
+              << "╚══════════════════════════════════════╝\n\n";
 
     CliArgs args;
     try {

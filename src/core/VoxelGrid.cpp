@@ -3,8 +3,7 @@
 #include <numeric>
 
 VoxelGrid::VoxelGrid(int resX, int resY, int resZ)
-    : resX(resX), resY(resY), resZ(resZ)
-{
+    : resX(resX), resY(resY), resZ(resZ) {
     if (resX <= 0 || resY <= 0 || resZ <= 0)
         throw std::invalid_argument("VoxelGrid: resolution must be positive.");
 
@@ -26,15 +25,15 @@ void VoxelGrid::setSolid(int x, int y, int z, bool solid) {
     solid_[idx(x, y, z)] = solid ? 1 : 0;
 }
 
-void VoxelGrid::setColor(int x, int y, int z, const glm::vec3& color) {
+void VoxelGrid::setColor(int x, int y, int z, const glm::vec3 &color) {
     if (!inBounds(x, y, z)) return;
     colors_[idx(x, y, z)] = color;
 }
 
-void VoxelGrid::set(int x, int y, int z, const glm::vec3& color) {
+void VoxelGrid::set(int x, int y, int z, const glm::vec3 &color) {
     if (!inBounds(x, y, z)) return;
     int i = idx(x, y, z);
-    solid_[i]  = 1;
+    solid_[i] = 1;
     colors_[i] = color;
 }
 
@@ -56,12 +55,18 @@ bool VoxelGrid::isFaceExposed(int x, int y, int z, Face face) const {
     // Check the neighbor in the face direction
     int nx = x, ny = y, nz = z;
     switch (face) {
-        case Face::Down:  ny--; break;
-        case Face::Up:    ny++; break;
-        case Face::North: nz--; break;
-        case Face::South: nz++; break;
-        case Face::West:  nx--; break;
-        case Face::East:  nx++; break;
+        case Face::Down: ny--;
+            break;
+        case Face::Up: ny++;
+            break;
+        case Face::North: nz--;
+            break;
+        case Face::South: nz++;
+            break;
+        case Face::West: nx--;
+            break;
+        case Face::East: nx++;
+            break;
     }
 
     // Face is exposed if neighbor is outside grid or not solid
@@ -76,6 +81,6 @@ bool VoxelGrid::inBounds(int x, int y, int z) const {
 
 int VoxelGrid::solidCount() const {
     int count = 0;
-    for (auto v : solid_) count += v;
+    for (auto v: solid_) count += v;
     return count;
 }

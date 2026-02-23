@@ -9,20 +9,21 @@
 
 int Voxelizer::qualityToResolution(int quality) {
     switch (quality) {
-        case 1:  return 16;
-        case 2:  return 24;
-        case 3:  return 32;
-        case 4:  return 48;
-        case 5:  return 64;
+        case 1: return 16;
+        case 2: return 24;
+        case 3: return 32;
+        case 4: return 48;
+        case 5: return 64;
         default: return 32;
     }
 }
 
-Voxelizer::Voxelizer(Config cfg) : cfg_(cfg) {}
+Voxelizer::Voxelizer(Config cfg) : cfg_(cfg) {
+}
 
 // ── Main voxelization ─────────────────────────────────────────────────────────
 
-VoxelGrid Voxelizer::voxelize(const Mesh& mesh) const {
+VoxelGrid Voxelizer::voxelize(const Mesh &mesh) const {
     int res = qualityToResolution(cfg_.quality);
 
     // Minecraft model space is [0, 16]. Voxel size in MC units:
@@ -31,16 +32,16 @@ VoxelGrid Voxelizer::voxelize(const Mesh& mesh) const {
 
     if (cfg_.verbose) {
         std::cout << "[Voxelizer] Quality " << cfg_.quality
-                  << " → " << res << "³ grid, voxel size = "
-                  << voxelSize << " MC units\n";
+                << " → " << res << "³ grid, voxel size = "
+                << voxelSize << " MC units\n";
         std::cout << "[Voxelizer] Processing " << mesh.triangles.size()
-                  << " triangles...\n";
+                << " triangles...\n";
     }
 
     VoxelGrid grid(res, res, res);
     int filledCount = 0;
 
-    for (const auto& tri : mesh.triangles) {
+    for (const auto &tri: mesh.triangles) {
         auto verts = mesh.getTriangleVertices(tri);
         glm::vec3 p0 = verts[0].position;
         glm::vec3 p1 = verts[1].position;
@@ -90,8 +91,8 @@ VoxelGrid Voxelizer::voxelize(const Mesh& mesh) const {
 
     if (cfg_.verbose) {
         std::cout << "[Voxelizer] Filled " << filledCount
-                  << " / " << grid.totalVoxels() << " voxels ("
-                  << (100.0f * filledCount / grid.totalVoxels()) << "%)\n";
+                << " / " << grid.totalVoxels() << " voxels ("
+                << (100.0f * filledCount / grid.totalVoxels()) << "%)\n";
     }
 
     return grid;
@@ -103,9 +104,8 @@ VoxelGrid Voxelizer::voxelize(const Mesh& mesh) const {
 // and 9 edge cross-products.
 
 static inline void project(const glm::vec3 axis,
-                            const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-                            float& minVal, float& maxVal)
-{
+                           const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2,
+                           float &minVal, float &maxVal) {
     float d0 = glm::dot(axis, v0);
     float d1 = glm::dot(axis, v1);
     float d2 = glm::dot(axis, v2);
@@ -113,24 +113,23 @@ static inline void project(const glm::vec3 axis,
     maxVal = std::max({d0, d1, d2});
 }
 
-static inline float projectBox(const glm::vec3& axis, const glm::vec3& halfSize) {
+static inline float projectBox(const glm::vec3 &axis, const glm::vec3 &halfSize) {
     return halfSize.x * std::abs(axis.x)
-         + halfSize.y * std::abs(axis.y)
-         + halfSize.z * std::abs(axis.z);
+           + halfSize.y * std::abs(axis.y)
+           + halfSize.z * std::abs(axis.z);
 }
 
 bool Voxelizer::triangleOverlapsVoxel(
-    const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-    const glm::vec3& voxelCenter,
-    const glm::vec3& halfSize) const
-{
+    const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2,
+    const glm::vec3 &voxelCenter,
+    const glm::vec3 &halfSize) const {
     // Translate triangle so voxel center is at origin
     glm::vec3 a = v0 - voxelCenter;
     glm::vec3 b = v1 - voxelCenter;
     glm::vec3 c = v2 - voxelCenter;
 
-    glm::vec3 edges[3] = { b - a, c - b, a - c };
-    glm::vec3 boxAxes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+    glm::vec3 edges[3] = {b - a, c - b, a - c};
+    glm::vec3 boxAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 
     float minTri, maxTri, boxR;
 
@@ -155,7 +154,7 @@ bool Voxelizer::triangleOverlapsVoxel(
     glm::vec3 normal = glm::cross(edges[0], edges[1]);
     if (glm::dot(normal, normal) > 1e-10f) {
         float d = glm::dot(normal, a);
-        boxR    = projectBox(normal, halfSize);
+        boxR = projectBox(normal, halfSize);
         if (d > boxR || d < -boxR) return false;
     }
 
@@ -165,9 +164,8 @@ bool Voxelizer::triangleOverlapsVoxel(
 // ── Barycentric coordinates ───────────────────────────────────────────────────
 
 glm::vec3 Voxelizer::barycentricCoords(
-    const glm::vec3& p,
-    const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) const
-{
+    const glm::vec3 &p,
+    const glm::vec3 &a, const glm::vec3 &b, const glm::vec3 &c) const {
     glm::vec3 v0 = b - a;
     glm::vec3 v1 = c - a;
     glm::vec3 v2 = p - a;
@@ -192,40 +190,40 @@ glm::vec3 Voxelizer::barycentricCoords(
 // Marks all voxels reachable from outside as "air", then inverts:
 // anything NOT reachable = interior = solid.
 
-void Voxelizer::floodFillSolid(VoxelGrid& grid) const {
+void Voxelizer::floodFillSolid(VoxelGrid &grid) const {
     int rx = grid.resX, ry = grid.resY, rz = grid.resZ;
 
     // visited[x + y*rx + z*rx*ry]
     std::vector<uint8_t> visited(rx * ry * rz, 0);
-    auto idx = [&](int x, int y, int z){ return x + y*rx + z*rx*ry; };
+    auto idx = [&](int x, int y, int z) { return x + y * rx + z * rx * ry; };
 
     std::queue<glm::ivec3> q;
 
     // Seed all border voxels that are not solid
     for (int z = 0; z < rz; z++)
-    for (int y = 0; y < ry; y++)
-    for (int x = 0; x < rx; x++) {
-        if ((x == 0 || x == rx-1 || y == 0 || y == ry-1 || z == 0 || z == rz-1)
-            && !grid.isSolid(x, y, z))
-        {
-            visited[idx(x,y,z)] = 1;
-            q.push({x, y, z});
-        }
-    }
+        for (int y = 0; y < ry; y++)
+            for (int x = 0; x < rx; x++) {
+                if ((x == 0 || x == rx - 1 || y == 0 || y == ry - 1 || z == 0 || z == rz - 1)
+                    && !grid.isSolid(x, y, z)) {
+                    visited[idx(x, y, z)] = 1;
+                    q.push({x, y, z});
+                }
+            }
 
     const glm::ivec3 dirs[6] = {
-        {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+        {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
     };
 
     while (!q.empty()) {
-        glm::ivec3 cur = q.front(); q.pop();
+        glm::ivec3 cur = q.front();
+        q.pop();
         int x = cur.x, y = cur.y, z = cur.z;
-        for (auto& d : dirs) {
-            int nx = x+d.x, ny = y+d.y, nz = z+d.z;
-            if (!grid.inBounds(nx,ny,nz)) continue;
-            if (visited[idx(nx,ny,nz)]) continue;
-            if (grid.isSolid(nx,ny,nz)) continue;
-            visited[idx(nx,ny,nz)] = 1;
+        for (auto &d: dirs) {
+            int nx = x + d.x, ny = y + d.y, nz = z + d.z;
+            if (!grid.inBounds(nx, ny, nz)) continue;
+            if (visited[idx(nx, ny, nz)]) continue;
+            if (grid.isSolid(nx, ny, nz)) continue;
+            visited[idx(nx, ny, nz)] = 1;
             q.push(glm::ivec3(nx, ny, nz));
         }
     }
@@ -233,14 +231,14 @@ void Voxelizer::floodFillSolid(VoxelGrid& grid) const {
     // Any unvisited non-solid voxel is interior → fill it
     int filled = 0;
     for (int z = 0; z < rz; z++)
-    for (int y = 0; y < ry; y++)
-    for (int x = 0; x < rx; x++) {
-        if (!visited[idx(x,y,z)] && !grid.isSolid(x,y,z)) {
-            // Sample color from nearest solid neighbor (simple approach)
-            grid.set(x, y, z, glm::vec3(0.8f));
-            filled++;
-        }
-    }
+        for (int y = 0; y < ry; y++)
+            for (int x = 0; x < rx; x++) {
+                if (!visited[idx(x, y, z)] && !grid.isSolid(x, y, z)) {
+                    // Sample color from nearest solid neighbor (simple approach)
+                    grid.set(x, y, z, glm::vec3(0.8f));
+                    filled++;
+                }
+            }
 
     if (cfg_.verbose)
         std::cout << "[Voxelizer] Flood-fill: " << filled << " interior voxels filled.\n";

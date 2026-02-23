@@ -15,14 +15,14 @@ public:
     virtual ~MeshLoader() = default;
 
     // Load a mesh from file. Throws std::runtime_error on failure.
-    virtual Mesh load(const std::string& path) = 0;
+    virtual Mesh load(const std::string &path) = 0;
 
     // ── Factory method ────────────────────────────────────────────────────────
     // Inspects the file extension and returns the appropriate concrete loader.
     // Usage: auto loader = MeshLoader::create("model.obj");
-    static std::unique_ptr<MeshLoader> create(const std::string& path);
+    static std::unique_ptr<MeshLoader> create(const std::string &path);
 
 protected:
     // Utility shared by loaders: normalize a path to lowercase extension
-    static std::string getExtension(const std::string& path);
+    static std::string getExtension(const std::string &path);
 };

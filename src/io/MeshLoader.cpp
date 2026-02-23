@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-std::string MeshLoader::getExtension(const std::string& path) {
+std::string MeshLoader::getExtension(const std::string &path) {
     auto pos = path.rfind('.');
     if (pos == std::string::npos) return "";
     std::string ext = path.substr(pos + 1);
@@ -12,7 +12,7 @@ std::string MeshLoader::getExtension(const std::string& path) {
     return ext;
 }
 
-std::unique_ptr<MeshLoader> MeshLoader::create(const std::string& path) {
+std::unique_ptr<MeshLoader> MeshLoader::create(const std::string &path) {
     std::string ext = getExtension(path);
 
     if (ext == "obj")

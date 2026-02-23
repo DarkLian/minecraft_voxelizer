@@ -12,9 +12,9 @@
 //   "up": { "uv": [u1,v1,u2,v2], "texture": "#0" }
 // ─────────────────────────────────────────────────────────────────────────────
 struct McFace {
-    std::array<float, 4> uv      = {0.0f, 0.0f, 16.0f, 16.0f};
-    std::string          texture = "#0";
-    int                  tintindex = -1; // -1 means not set
+    std::array<float, 4> uv = {0.0f, 0.0f, 16.0f, 16.0f};
+    std::string texture = "#0";
+    int tintindex = -1; // -1 means not set
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,11 +29,12 @@ struct McElement {
 
     // Optional rotation (MC allows max one rotation per element)
     struct Rotation {
-        float     angle  = 0.0f;    // must be -45, -22.5, 0, 22.5, or 45
-        char      axis   = 'y';     // 'x', 'y', or 'z'
+        float angle = 0.0f; // must be -45, -22.5, 0, 22.5, or 45
+        char axis = 'y'; // 'x', 'y', or 'z'
         glm::vec3 origin = glm::vec3(8.0f); // pivot point in MC units
-        bool      rescale = false;
+        bool rescale = false;
     };
+
     // rotation is left unset (no rotation) unless explicitly needed
     bool hasRotation = false;
     Rotation rotation;

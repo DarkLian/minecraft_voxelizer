@@ -13,9 +13,9 @@
 class Normalizer {
 public:
     struct Config {
-        float mcUnits   = 16.0f; // target bounding box size in MC units
-        bool  snapFloor = true;  // if true, lowest point of model sits at y=0
-        float padding   = 0.0f;  // optional inset margin (MC units each side)
+        float mcUnits = 16.0f; // target bounding box size in MC units
+        bool snapFloor = true; // if true, lowest point of model sits at y=0
+        float padding = 0.0f; // optional inset margin (MC units each side)
         Config() = default;
     };
 
@@ -24,7 +24,7 @@ public:
 
     // Returns a new Mesh with all vertex positions transformed to MC space.
     // Does not modify normals (they stay as-is after uniform scale).
-    Mesh normalize(const Mesh& input) const;
+    Mesh normalize(const Mesh &input) const;
 
 private:
     Config cfg_;

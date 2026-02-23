@@ -32,9 +32,31 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="98ff4289-3a47-42ca-83e6-98bb6977b493" name="Changes" comment="">
+    <list default="true" id="98ff4289-3a47-42ca-83e6-98bb6977b493" name="Changes" comment="Fixed entrypoint not found">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/Mesh.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/Mesh.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/Mesh.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/Mesh.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/TextureAtlas.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/TextureAtlas.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/TextureAtlas.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/TextureAtlas.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/VoxelGrid.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/VoxelGrid.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/VoxelGrid.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/VoxelGrid.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/io/GltfLoader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/io/GltfLoader.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/io/GltfLoader.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/io/GltfLoader.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/io/MeshLoader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/io/MeshLoader.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/io/MeshLoader.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/io/MeshLoader.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/io/ObjLoader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/io/ObjLoader.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/io/ObjLoader.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/io/ObjLoader.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/minecraft/McConstants.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/minecraft/McConstants.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/minecraft/McElement.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/minecraft/McElement.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/minecraft/McModel.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/minecraft/McModel.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/minecraft/McModel.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/minecraft/McModel.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/pipeline/GreedyMesher.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/pipeline/GreedyMesher.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/pipeline/GreedyMesher.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/pipeline/GreedyMesher.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/pipeline/Normalizer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/pipeline/Normalizer.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/pipeline/Normalizer.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/pipeline/Normalizer.hpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/pipeline/Voxelizer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/pipeline/Voxelizer.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/pipeline/Voxelizer.hpp" beforeDir="false" afterPath="$PROJECT_DIR$/src/pipeline/Voxelizer.hpp" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -164,8 +186,17 @@
       <option name="presentableId" value="Default" />
       <updated>1771847699220</updated>
       <workItem from="1771847701329" duration="408000" />
-      <workItem from="1771848124158" duration="1819000" />
+      <workItem from="1771848124158" duration="4720000" />
     </task>
+    <task id="LOCAL-00001" summary="Fixed entrypoint not found">
+      <option name="closed" value="true" />
+      <created>1771849972010</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1771849972010</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -175,5 +206,9 @@
     <isAutomaticCheckingOnLaunch value="false" />
     <isAutomaticFoundErrors value="true" />
     <isAutomaticReloadCMake value="true" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Fixed entrypoint not found" />
+    <option name="LAST_COMMIT_MESSAGE" value="Fixed entrypoint not found" />
   </component>
 </project>

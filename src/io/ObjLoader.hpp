@@ -8,5 +8,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
 class ObjLoader : public MeshLoader {
 public:
-    Mesh load(const std::string& path) override;
+    Mesh load(const std::string &path) override;
 };

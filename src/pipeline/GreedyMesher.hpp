@@ -20,14 +20,15 @@ class GreedyMesher {
 public:
     // A merged quad in Minecraft model space [0,16]
     struct Quad {
-        glm::vec3 from;    // min corner in MC units
-        glm::vec3 to;      // max corner in MC units
-        glm::vec3 color;   // flat color for this face
-        Face      face;    // which face direction
+        glm::vec3 from; // min corner in MC units
+        glm::vec3 to; // max corner in MC units
+        glm::vec3 color; // flat color for this face
+        Face face; // which face direction
     };
 
     struct Config {
         bool verbose = true;
+
         Config() = default;
     };
 
@@ -35,17 +36,17 @@ public:
     explicit GreedyMesher(Config cfg);
 
     // Main entry: produces a list of quads from the voxel grid.
-    std::vector<Quad> mesh(const VoxelGrid& grid) const;
+    std::vector<Quad> mesh(const VoxelGrid &grid) const;
 
 private:
     Config cfg_;
 
     // Process all slices along one axis/face direction
     void meshFace(
-        const VoxelGrid&   grid,
-        Face               face,
-        std::vector<Quad>& out) const;
+        const VoxelGrid &grid,
+        Face face,
+        std::vector<Quad> &out) const;
 
     // Pack a color to uint32 for map keys (same as TextureAtlas)
-    static uint32_t packColor(const glm::vec3& c);
+    static uint32_t packColor(const glm::vec3 &c);
 };

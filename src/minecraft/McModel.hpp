@@ -17,28 +17,28 @@
 // ─────────────────────────────────────────────────────────────────────────────
 class McModel {
 public:
-    explicit McModel(const std::string& texturePath);
+    explicit McModel(const std::string &texturePath);
 
     // Convert greedy-meshed quads into McElements using the texture atlas.
     // Call this once after all quads are ready.
-    void build(const std::vector<GreedyMesher::Quad>& quads,
-               TextureAtlas& atlas);
+    void build(const std::vector<GreedyMesher::Quad> &quads,
+               TextureAtlas &atlas);
 
     // Serialize to Minecraft JSON model format.
-    void writeJson(const std::string& outputPath) const;
+    void writeJson(const std::string &outputPath) const;
 
     // ── Queries ───────────────────────────────────────────────────────────────
-    int  elementCount() const { return static_cast<int>(elements_.size()); }
-    bool isEmpty()      const { return elements_.empty(); }
+    int elementCount() const { return static_cast<int>(elements_.size()); }
+    bool isEmpty() const { return elements_.empty(); }
 
     // Warn if element count is approaching problematic thresholds
     void printStats() const;
 
 private:
-    std::string              texturePath_; // e.g. "darkaddons:item/sword"
-    std::vector<McElement>   elements_;
+    std::string texturePath_; // e.g. "darkaddons:item/sword"
+    std::vector<McElement> elements_;
 
     // Build a single McElement from one greedy quad
-    McElement buildElement(const GreedyMesher::Quad& quad,
-                           const TextureAtlas::UVRect& uv) const;
+    McElement buildElement(const GreedyMesher::Quad &quad,
+                           const TextureAtlas::UVRect &uv) const;
 };

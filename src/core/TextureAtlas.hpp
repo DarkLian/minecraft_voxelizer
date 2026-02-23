@@ -23,25 +23,26 @@ public:
 
     // Register a color. UVs are provisional until all colors are added.
     // Call recomputeUV(index) after all addColor() calls for final UVs.
-    UVRect addColor(const glm::vec3& color);
+    UVRect addColor(const glm::vec3 &color);
 
     // Get final UV for a color index — call after all colors are registered.
     UVRect recomputeUV(int colorIndex) const;
 
     // Get index of a previously registered color, or -1.
-    int getColorIndex(const glm::vec3& color) const;
+    int getColorIndex(const glm::vec3 &color) const;
 
     // Write the packed atlas PNG. Call after all colors have been registered.
-    void writePng(const std::string& path) const;
+    void writePng(const std::string &path) const;
 
-    int colorCount()  const { return static_cast<int>(colors_.size()); }
-    int atlasWidth()  const { return static_cast<int>(colors_.size()); }
+    int colorCount() const { return static_cast<int>(colors_.size()); }
+    int atlasWidth() const { return static_cast<int>(colors_.size()); }
     int atlasHeight() const { return 1; }
 
 private:
-    static uint32_t packColor(const glm::vec3& c);
+    static uint32_t packColor(const glm::vec3 &c);
+
     UVRect buildUV(int col) const;
 
     std::unordered_map<uint32_t, int> colorToIndex_;
-    std::vector<glm::vec3>            colors_;
+    std::vector<glm::vec3> colors_;
 };

@@ -6,7 +6,7 @@
 #include <iostream>
 #include <filesystem>
 
-Mesh ObjLoader::load(const std::string& path) {
+Mesh ObjLoader::load(const std::string &path) {
     std::cout << "[ObjLoader] Loading: " << path << "\n";
 
     tinyobj::ObjReaderConfig config;
@@ -21,9 +21,9 @@ Mesh ObjLoader::load(const std::string& path) {
     if (!reader.Warning().empty())
         std::cerr << "[ObjLoader] Warning: " << reader.Warning() << "\n";
 
-    const auto& attrib   = reader.GetAttrib();
-    const auto& shapes   = reader.GetShapes();
-    const auto& materials = reader.GetMaterials();
+    const auto &attrib = reader.GetAttrib();
+    const auto &shapes = reader.GetShapes();
+    const auto &materials = reader.GetMaterials();
 
     Mesh mesh;
 
@@ -31,12 +31,12 @@ Mesh ObjLoader::load(const std::string& path) {
     // Add a default white material at index 0 as fallback
     {
         Mesh::Material defaultMat;
-        defaultMat.name      = "default";
+        defaultMat.name = "default";
         defaultMat.baseColor = glm::vec3(0.8f); // light grey fallback
         mesh.materials.push_back(defaultMat);
     }
 
-    for (const auto& m : materials) {
+    for (const auto &m: materials) {
         Mesh::Material mat;
         mat.name = m.name;
         mat.baseColor = glm::vec3(
@@ -47,14 +47,14 @@ Mesh ObjLoader::load(const std::string& path) {
         if (!m.diffuse_texname.empty()) {
             // Resolve relative texture path
             mat.texturePath =
-                (std::filesystem::path(path).parent_path() / m.diffuse_texname).string();
+                    (std::filesystem::path(path).parent_path() / m.diffuse_texname).string();
         }
         mesh.materials.push_back(mat);
     }
 
     // ── Geometry ──────────────────────────────────────────────────────────────
     // tinyobjloader indexes vertices per-face, so we build a flat vertex list.
-    for (const auto& shape : shapes) {
+    for (const auto &shape: shapes) {
         size_t indexOffset = 0;
 
         for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
@@ -106,9 +106,9 @@ Mesh ObjLoader::load(const std::string& path) {
         }
     }
 
-    std::cout << "[ObjLoader] Loaded " << mesh.vertices.size()   << " vertices, "
-              <<                          mesh.triangles.size()   << " triangles, "
-              <<                          mesh.materials.size()-1 << " materials.\n";
+    std::cout << "[ObjLoader] Loaded " << mesh.vertices.size() << " vertices, "
+            << mesh.triangles.size() << " triangles, "
+            << mesh.materials.size() - 1 << " materials.\n";
 
     if (mesh.isEmpty())
         throw std::runtime_error("ObjLoader: file produced an empty mesh: " + path);

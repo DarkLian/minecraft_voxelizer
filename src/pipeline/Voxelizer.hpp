@@ -22,9 +22,10 @@
 class Voxelizer {
 public:
     struct Config {
-        int  quality    = 3;
-        bool solidFill  = false;
-        bool verbose    = true;
+        int quality = 3;
+        bool solidFill = false;
+        bool verbose = true;
+
         Config() = default;
     };
 
@@ -35,22 +36,22 @@ public:
 
     // Main entry: voxelize a mesh into a grid.
     // Mesh MUST be pre-normalized into [0, 16] MC space.
-    VoxelGrid voxelize(const Mesh& mesh) const;
+    VoxelGrid voxelize(const Mesh &mesh) const;
 
 private:
     Config cfg_;
 
     // SAT triangle-AABB overlap test (Akenine-Möller 2001)
     bool triangleOverlapsVoxel(
-        const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
-        const glm::vec3& voxelCenter,
-        const glm::vec3& halfSize) const;
+        const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2,
+        const glm::vec3 &voxelCenter,
+        const glm::vec3 &halfSize) const;
 
     // Barycentric coordinate computation for color sampling
     glm::vec3 barycentricCoords(
-        const glm::vec3& p,
-        const glm::vec3& a, const glm::vec3& b, const glm::vec3& c) const;
+        const glm::vec3 &p,
+        const glm::vec3 &a, const glm::vec3 &b, const glm::vec3 &c) const;
 
     // Flood-fill from outside to mark interior voxels as solid
-    void floodFillSolid(VoxelGrid& grid) const;
+    void floodFillSolid(VoxelGrid &grid) const;
 };

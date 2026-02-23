@@ -7,40 +7,48 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mesh — plain data container holding geometry loaded from any 3D file format.
-// This is format-agnostic; both ObjLoader and GltfLoader produce a Mesh.
+// Format-agnostic; both ObjLoader and GltfLoader produce a Mesh.
 // ─────────────────────────────────────────────────────────────────────────────
 class Mesh {
 public:
-    // ── Sub-types ─────────────────────────────────────────────────────────────
 
     struct Vertex {
         glm::vec3 position;
-        glm::vec2 uv; // texture coordinate, may be (0,0) if mesh has none
-        glm::vec3 normal; // surface normal, used for face culling
+        glm::vec2 uv;       // texture coordinate in [0,1] (0,0 if mesh has none)
+        glm::vec3 normal;
     };
 
     struct Triangle {
         std::array<int, 3> vertexIndices;
-        int materialIndex; // index into materials[], -1 = default white
+        int materialIndex;  // index into materials[], -1 = default white
+    };
+
+    // ── Texture image ─────────────────────────────────────────────────────────
+    // Decoded RGBA pixel data for a single diffuse texture.
+    // Loaded by the file loader (ObjLoader / GltfLoader) when the MTL/glTF
+    // references an image file. If empty, sampleColor falls back to baseColor.
+    struct TextureImage {
+        std::vector<uint8_t> pixels; // RGBA, row-major, top-to-bottom
+        int width  = 0;
+        int height = 0;
+        bool loaded() const { return !pixels.empty() && width > 0 && height > 0; }
     };
 
     struct Material {
-        std::string name;
-        glm::vec3 baseColor = glm::vec3(1.0f); // fallback flat color (RGB 0-1)
-        std::string texturePath; // path to diffuse texture, may be empty
+        std::string   name;
+        glm::vec3     baseColor  = glm::vec3(1.0f); // flat fallback color (RGB 0-1)
+        std::string   texturePath;                  // path to diffuse image, may be empty
+        TextureImage  texture;                      // decoded pixels (loaded by loader)
     };
 
-    // ── Axis-Aligned Bounding Box helper ──────────────────────────────────────
     struct AABB {
-        glm::vec3 min;
-        glm::vec3 max;
-
-        glm::vec3 size() const { return max - min; }
+        glm::vec3 min, max;
+        glm::vec3 size()   const { return max - min; }
         glm::vec3 center() const { return (min + max) * 0.5f; }
     };
 
     // ── Data ──────────────────────────────────────────────────────────────────
-    std::vector<Vertex> vertices;
+    std::vector<Vertex>   vertices;
     std::vector<Triangle> triangles;
     std::vector<Material> materials;
 
@@ -48,15 +56,20 @@ public:
 
     bool isEmpty() const { return vertices.empty() || triangles.empty(); }
 
-    // Computes tight AABB over all vertex positions
     AABB computeBounds() const;
 
-    // Convenience: get the three vertices of a triangle
     std::array<Vertex, 3> getTriangleVertices(const Triangle &tri) const;
 
-    // Sample the material color at a given triangle + barycentric coordinate.
-    // Returns base color since full texture sampling requires image data;
-    // the TextureAtlas handles actual per-pixel sampling when textures are loaded.
+    // Sample the color for a point on a triangle.
+    //
+    // barycentricWeights = (w0, w1) where w2 = 1 - w0 - w1.
+    // These are the weights for vertexIndices[0] and vertexIndices[1].
+    //
+    // If the material has a loaded texture:
+    //   → interpolates the three vertex UVs with the barycentric weights,
+    //     then performs a nearest-neighbor sample of the texture image.
+    // Otherwise:
+    //   → returns material.baseColor.
     glm::vec3 sampleColor(const Triangle &tri,
-                          const glm::vec2 &barycentricUV) const;
+                          const glm::vec2 &barycentricWeights) const;
 };

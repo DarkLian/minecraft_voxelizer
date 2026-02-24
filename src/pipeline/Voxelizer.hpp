@@ -53,5 +53,5 @@ private:
         const glm::vec3 &a, const glm::vec3 &b, const glm::vec3 &c) const;
 
     // Flood-fill from outside to mark interior voxels as solid
-    void floodFillSolid(VoxelGrid &grid) const;
+    int floodFillSolid(VoxelGrid &grid) const;
 };

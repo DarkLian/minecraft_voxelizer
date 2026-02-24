@@ -87,7 +87,7 @@ VoxelGrid Voxelizer::voxelize(const Mesh &mesh) const {
     }
 
     if (cfg_.solidFill)
-        floodFillSolid(grid);
+        filledCount += floodFillSolid(grid);
 
     if (cfg_.verbose) {
         std::cout << "[Voxelizer] Filled " << filledCount
@@ -190,7 +190,7 @@ glm::vec3 Voxelizer::barycentricCoords(
 // Marks all voxels reachable from outside as "air", then inverts:
 // anything NOT reachable = interior = solid.
 
-void Voxelizer::floodFillSolid(VoxelGrid &grid) const {
+int Voxelizer::floodFillSolid(VoxelGrid &grid) const {
     int rx = grid.resX, ry = grid.resY, rz = grid.resZ;
 
     // visited[x + y*rx + z*rx*ry]
@@ -242,4 +242,6 @@ void Voxelizer::floodFillSolid(VoxelGrid &grid) const {
 
     if (cfg_.verbose)
         std::cout << "[Voxelizer] Flood-fill: " << filled << " interior voxels filled.\n";
+
+    return filled;
 }

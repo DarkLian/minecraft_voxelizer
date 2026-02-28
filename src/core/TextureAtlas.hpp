@@ -4,63 +4,91 @@
 #include <array>
 #include <vector>
 #include <string>
-#include <unordered_map>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TextureAtlas — packs unique voxel colors into a square, power-of-2 PNG
-// that matches Minecraft's standard texture conventions.
+// TextureAtlas (v1.1) — 2-D strip-packing texture atlas.
 //
-// Layout: row-major pixel grid, one pixel per unique color.
+// Usage pattern (three phases):
 //
-//   ≤  256 colors  →  16×16 PNG   (S = 16)
-//   ≤ 1024 colors  →  32×32 PNG   (S = 32)
-//   ≤ 4096 colors  →  64×64 PNG   (S = 64)
+//   Phase 1 – Allocate regions (before colours are known):
+//     Region r = atlas.allocate(pixelW, pixelH);
 //
-//   Color i  →  pixel (px, py) = (i % S, i / S)
-//   UV rect  →  [px, py, px+1, py+1]  in Minecraft's [0,16] UV space
+//   Phase 2 – Finalize layout (creates pixel buffer, must come after ALL
+//             allocations and before any setPixel / regionUV calls):
+//     atlas.finalize();
 //
-// Why integer UV coords?
-//   For a 16×16 texture, Minecraft's UV [0,16] spans the full texture,
-//   so 1 UV unit = 1 pixel. Every color slot gets clean integer UV values,
-//   identical in style to hand-authored Blockbench models.
+//   Phase 3 – Fill pixels:
+//     atlas.setPixel(r.x + px, r.y + py, color);
 //
-// Why fully opaque?
-//   Minecraft's OpenGL renderer bilinearly bleeds neighboring texels into
-//   each face sample. Any alpha=0 (transparent) pixel adjacent to a color
-//   slot makes that face render semi-transparent or near-invisible.
-//   All pixels in the output PNG are therefore fully opaque (alpha = 255);
-//   unused slots are filled with solid white.
+//   Phase 4 – Query UVs and write PNG:
+//     UVRect uv = atlas.regionUV(r);
+//     atlas.writePng("out.png");
+//
+// Layout: horizontal strip packing with row wrap at maxRowWidth.
+//   e.g. quads with sizes 4×2, 6×3, 8×2 → packed left-to-right, new row
+//        when the next quad would exceed maxRowWidth.
+//
+// Atlas dimensions are rounded up to the next power of two so Minecraft and
+// older GPU drivers are happy.  UV coordinates are in Minecraft's [0,16]
+// space and always reference the power-of-two dimensions.
 // ─────────────────────────────────────────────────────────────────────────────
 class TextureAtlas {
 public:
     using UVRect = std::array<float, 4>; // [u1, v1, u2, v2] in MC [0,16] space
 
-    TextureAtlas() = default;
+    // A rectangular region allocated inside the atlas (pixel coordinates).
+    struct Region { int x, y, w, h; };
 
-    // Register a color. Returns a provisional UV (atlas size not yet final).
-    // Always call recomputeUV(index) after ALL addColor() calls.
-    UVRect addColor(const glm::vec3 &color);
+    // maxRowWidth: maximum pixel width before starting a new row (default 4096).
+    explicit TextureAtlas(int maxRowWidth = 4096);
 
-    // Final UV for a color index — call after ALL colors are registered.
-    UVRect recomputeUV(int colorIndex) const;
+    // ── Phase 1 ───────────────────────────────────────────────────────────────
+    // Allocate a (w × h) pixel region.  Returns its position in the atlas.
+    // Must be called before finalize().
+    Region allocate(int w, int h);
 
-    // Index of a previously registered color, or -1 if not found.
-    int getColorIndex(const glm::vec3 &color) const;
+    // ── Phase 2 ───────────────────────────────────────────────────────────────
+    // Lock the layout, allocate the pixel buffer (filled with black).
+    // Must be called after all allocate() calls and before setPixel() or
+    // regionUV().  Calling allocate() after finalize() is a logic error.
+    void finalize();
 
-    // Write the packed atlas PNG. Call after all colors have been registered.
+    // ── Phase 3 ───────────────────────────────────────────────────────────────
+    // Set a single pixel (absolute atlas coordinates).
+    // Must be called after finalize().
+    void setPixel(int x, int y, const glm::vec3 &color);
+
+    // ── Phase 4 ───────────────────────────────────────────────────────────────
+    // Get the Minecraft UV rect [u1,v1,u2,v2] in [0,16] space for a region.
+    // Must be called after finalize().
+    UVRect regionUV(const Region &r) const;
+
+    // Write the atlas PNG.  Must be called after finalize() and after all
+    // setPixel() calls.
     void writePng(const std::string &path) const;
 
-    int colorCount() const { return static_cast<int>(colors_.size()); }
-    int atlasSize()  const { return computeAtlasSize(colorCount()); }
-    int atlasWidth() const { return atlasSize(); }
-    int atlasHeight()const { return atlasSize(); }
+    // ── Queries ───────────────────────────────────────────────────────────────
+    int atlasWidth()  const { return atlasW_; }
+    int atlasHeight() const { return atlasH_; }
+    bool isFinalized() const { return finalized_; }
 
 private:
-    // Smallest power-of-2 S ≥ 16 such that S*S ≥ n.
-    static int computeAtlasSize(int n);
-    static uint32_t packColor(const glm::vec3 &c);
-    UVRect buildUV(int col) const;
+    static int nextPow2(int v);
 
-    std::unordered_map<uint32_t, int> colorToIndex_;
-    std::vector<glm::vec3>            colors_;
+    int maxRowWidth_;
+
+    // Packing state (Phase 1)
+    int curX_  = 0;
+    int curY_  = 0;
+    int rowH_  = 0;
+    int packedW_ = 0; // widest point reached so far
+    int packedH_ = 0; // total height accumulated
+
+    // Final atlas dimensions (set by finalize())
+    int atlasW_ = 1;
+    int atlasH_ = 1;
+    bool finalized_ = false;
+
+    // Pixel buffer [atlasW_ × atlasH_], RGB in [0,1]
+    std::vector<glm::vec3> pixels_;
 };

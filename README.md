@@ -1,155 +1,191 @@
 # Minecraft Voxelizer
 
-A C++ tool that converts `.obj` and `.gltf`/`.glb` 3D models into Minecraft-compatible
-model JSON files with a generated texture atlas PNG.
+Convert any `.obj` / `.gltf` / `.glb` 3-D model into a Minecraft item model (`.json` + `.png`) in seconds.
 
-## Pipeline
+---
 
-```
-.obj / .gltf
-     │
-     ▼
-[MeshLoader]       Load geometry + materials
-     │
-     ▼
-[Normalizer]       Scale mesh to Minecraft [0,16] coordinate space
-     │
-     ▼
-[Voxelizer]        Surface voxelization via SAT triangle–AABB test
-     │
-     ▼
-[GreedyMesher]     Merge adjacent same-color faces → optimized quads
-     │
-     ▼
-[TextureAtlas]     Deduplicate colors → compact PNG strip
-     │
-     ▼
-[McModel]          Assemble + write model.json + texture.png
-```
+## Features
+
+- **Geometry-only greedy meshing** — adjacent exposed voxel faces are merged regardless of colour, minimising element count for maximum MC compatibility
+- **Configurable texture density** — `--density N` maps `N×N` pixels per voxel, giving detailed colour gradients without adding extra elements
+- **Multi-format input** — Wavefront OBJ (with MTL materials) and glTF 1.x / glTF 2.0 (ASCII `.gltf` and binary `.glb`)
+- **Five quality levels** — 16³ to 64³ voxel grid; pick the right balance of detail vs. element count
+- **Optional solid fill** — flood-fill interior voxels so hollow meshes become solid models
+- **Interactive mode** — double-click the binary and answer prompts (no terminal required)
+
+---
 
 ## Building
 
-### Prerequisites
-- CMake 3.20+
-- C++20 compiler (GCC 11+, Clang 12+, MSVC 2022+)
-- Git (for FetchContent dependencies)
-
-### Steps
+**Requirements:** CMake ≥ 3.20, a C++20 compiler (GCC 12+, MSVC 2022+, Clang 15+), internet access (FetchContent pulls dependencies).
 
 ```bash
-# 1. Get stb (header-only, needed for PNG writing)
-mkdir -p third_party/stb
-curl -O https://raw.githubusercontent.com/nothings/stb/master/stb_image_write.h
-curl -O https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
-mv stb_image*.h third_party/stb/
-
-# 2. Configure + build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-
-# Binary will be at: build/bin/mc_voxelizer
+cmake --build build --config Release
 ```
+
+The binary is placed in `build/bin/mc_voxelizer` (Linux/macOS) or `build\bin\Release\mc_voxelizer.exe` (Windows).
+
+---
 
 ## Usage
 
-```bash
-mc_voxelizer <input.obj|.gltf|.glb> [options]
-
-Options:
-  --quality  1-5    Voxel resolution (default: 3)
-                      1 = 16³  fastest, most blocky
-                      2 = 24³
-                      3 = 32³  recommended default
-                      4 = 48³
-                      5 = 64³  finest detail, most elements
-  --output   <dir>  Output directory (default: ./output)
-  --name     <str>  Model/file name stem (default: input filename)
-  --modid    <str>  Mod namespace for texture path (default: mymod)
-  --solid           Fill interior with voxels (slower, better for solid objects)
-  --help            Show usage
 ```
+mc_voxelizer <input> [options]
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--quality 1-5` | `3` | Voxel grid resolution (see table below) |
+| `--density 1-16` | `1` | Texture pixels per voxel |
+| `--output <dir>` | `./output` | Directory to write `.json` and `.png` |
+| `--name <str>` | filename stem | Model name used in output filenames |
+| `--modid <str>` | `mymod` | Mod namespace for the texture path |
+| `--solid` | off | Fill interior voxels (for hollow meshes) |
+| `--help` | — | Show usage |
+
+### Quality levels
+
+| Level | Grid | Typical elements | Notes |
+|---|---|---|---|
+| 1 | 16³ | < 50 | Fastest; very blocky; icon use |
+| 2 | 24³ | ~100 | |
+| **3** | **32³** | **~200** | **Recommended default** |
+| 4 | 48³ | ~600 | Good for detailed shapes |
+| 5 | 64³ | ~1 500 | Slowest; may lag Blockbench |
+
+### Density and texture size
+
+`--density N` controls how many pixels each voxel face occupies in the PNG atlas.  Greedy meshing is geometry-only, so element count is *unaffected* by density — only the PNG grows.
+
+| Density | Quality 3 atlas (approx) | Use case |
+|---|---|---|
+| 1 | ~256 × 2 px | Flat colours, smallest file |
+| 2 | ~512 × 4 px | Slight colour gradient |
+| 4 | ~1 024 × 8 px | Clear colour variation / face expression |
+| 8 | ~2 048 × 16 px | High detail; good for character models |
+
+> **Warning:** density ≥ 8 with quality 5 can produce atlases larger than 8 192 px — the tool will warn you.
 
 ### Examples
 
 ```bash
-# Basic conversion (quality 3 default)
+# Simple sword
 mc_voxelizer sword.obj
 
-# High-quality dragon model for the "darkaddons" mod
-mc_voxelizer dragon.gltf --quality 4 --modid darkaddons --name dragon
+# Dragon with rich colour detail
+mc_voxelizer dragon.gltf --quality 4 --density 4 --modid darkaddons --name dragon
 
-# Solid-fill ship model at max quality
-mc_voxelizer ship.obj --quality 5 --solid --output ./my_assets
+# Character model with face expression visible
+mc_voxelizer player.glb --quality 3 --density 8 --modid mymod --name player
 
-# Quick low-quality preview
-mc_voxelizer model.obj --quality 1
+# Hollow ship, filled solid, high quality
+mc_voxelizer ship.obj --quality 5 --density 2 --solid --output ./assets/models
 ```
+
+---
+
+## Pipeline
+
+```
+.obj / .gltf / .glb
+        │
+        ▼  MeshLoader (ObjLoader / GltfLoader)
+      Mesh  (vertices, triangles, materials)
+        │
+        ▼  Normalizer
+      Mesh  (scaled to [0,16] MC space, floor-snapped)
+        │
+        ▼  Voxelizer  (SAT triangle–AABB, quality 1–5)
+    VoxelGrid  (solid flags + per-voxel colours)
+        │
+        ▼  GreedyMesher  ← geometry-only merge
+    [Quad]  (MC from/to + voxel-space metadata)
+        │
+        ▼  McModel::build(quads, grid, atlas, density)
+        │     Phase 1: allocate atlas regions  (uCount×density, vCount×density) px each
+        │     Phase 2: atlas.finalize()        (power-of-2 dimensions)
+        │     Phase 3: fill pixels             (sample VoxelGrid per pixel)
+        │     Phase 4: build McElements        (UV from finalised atlas)
+        │
+        ├──▶ <name>.json   (Minecraft model)
+        └──▶ <name>.png    (texture atlas)
+```
+
+### Why geometry-only greedy meshing?
+
+In v1.0 the mesher merged faces only when they shared the same colour.  This meant:
+
+- Many small quads for complex coloured surfaces → high element count
+- Texture atlas was 1 pixel wide per unique colour → no detail possible
+
+In v1.1 the mesher merges **any** adjacent exposed faces on the same slice plane.  The resulting larger quads get an atlas region whose pixel dimensions are proportional to their voxel extents.  Colour is sampled per-pixel from the VoxelGrid, so full colour fidelity is preserved at whatever density you choose.
+
+---
 
 ## Output
 
-Running the tool produces two files:
-
-| File | Description |
-|---|---|
-| `<name>.json` | Minecraft model file — drop into `assets/<modid>/models/item/` |
-| `<name>.png`  | Texture atlas — drop into `assets/<modid>/textures/item/` |
-
-## Quality Guide
-
-| Level | Resolution | Typical Elements After Greedy | Use Case |
-|---|---|---|---|
-| 1 | 16³   | ~50–150   | Icons, simple items |
-| 2 | 24³   | ~100–300  | Medium detail items |
-| 3 | 32³   | ~200–600  | Default, good balance |
-| 4 | 48³   | ~400–1200 | Fine detail, complex shapes |
-| 5 | 64³   | ~800–2500 | Max detail (edit in Blockbench after) |
-
-**Note:** Blockbench starts lagging around 500 elements. Vanilla Minecraft
-renderer becomes unstable past ~3000. If quality 5 exceeds these limits,
-reduce to quality 3–4 and post-process in Blockbench.
-
-## Importing into Blockbench
-
-1. Open Blockbench → **File → Open Model**
-2. Select your generated `.json` file
-3. Adjust **Display** settings (GUI, third-person, etc.)
-4. Export back to JSON when done
-
-## Project Structure
+Two files are created:
 
 ```
-src/
-├── main.cpp                  # CLI entry point + pipeline orchestration
-├── core/
-│   ├── Mesh.hpp/.cpp         # Format-agnostic geometry container
-│   ├── VoxelGrid.hpp/.cpp    # 3D voxel grid with face exposure queries
-│   └── TextureAtlas.hpp/.cpp # Color dedup + PNG atlas writer
-├── io/
-│   ├── MeshLoader.hpp/.cpp   # Abstract loader + factory method
-│   ├── ObjLoader.hpp/.cpp    # Wavefront OBJ via tinyobjloader
-│   └── GltfLoader.hpp/.cpp   # GLTF/GLB via tinygltf
-├── pipeline/
-│   ├── Normalizer.hpp/.cpp   # Scale mesh to MC [0,16] space
-│   ├── Voxelizer.hpp/.cpp    # SAT surface voxelization
-│   └── GreedyMesher.hpp/.cpp # Adjacent-face merging optimization
-└── minecraft/
-    ├── McConstants.hpp       # MC format constants, face names
-    ├── McElement.hpp         # JSON element data structure
-    └── McModel.hpp/.cpp      # Assembles + serializes complete model
-
-third_party/
-├── stb/                      # stb_image_write (PNG output)
-└── (glm, nlohmann, tinyobjloader, tinygltf via CMake FetchContent)
+output/
+  <name>.json    ← Minecraft model (place in assets/<modid>/models/item/)
+  <name>.png     ← Texture atlas   (place in assets/<modid>/textures/item/)
 ```
 
-## Dependencies
+### Fabric mod integration (1.21 Mojang Mappings)
 
-All fetched automatically via CMake FetchContent except `stb`:
+1. Copy `<name>.json` → `src/main/resources/assets/<modid>/models/item/<name>.json`
+2. Copy `<name>.png`  → `src/main/resources/assets/<modid>/textures/item/<name>.png`
+3. Register your item model in `ModelProvider` (or via JSON override in `assets/<modid>/items/<name>.json`)
 
-| Library | Purpose |
+```json
+// assets/<modid>/items/<name>.json
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "<modid>:item/<name>"
+  }
+}
+```
+
+4. Open `<name>.json` in [Blockbench](https://www.blockbench.net/) to tweak display transforms (GUI rotation, third-person scale, etc.)
+
+---
+
+## Constraints and tips
+
+| Concern | Advice |
 |---|---|
-| [glm](https://github.com/g-truc/glm) | 3D math (vectors, matrices) |
-| [nlohmann/json](https://github.com/nlohmann/json) | JSON serialization |
-| [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) | OBJ loading |
-| [tinygltf](https://github.com/syoyo/tinygltf) | GLTF/GLB loading |
-| [stb](https://github.com/nothings/stb) | PNG writing (manual download) |
+| **Element limit** | Vanilla MC starts struggling above ~3 000 elements; Blockbench lags above ~500. Use `--quality 1-3` for editing. |
+| **Texture size** | MC supports any power-of-2 PNG. Older GPU drivers may cap at 8 192 px. |
+| **UV precision** | MC UVs are floats in `[0, 16]`. At very large atlas sizes (> 16 K px) sub-pixel precision may drift slightly. Keep density ≤ 8 for safety. |
+| **Hollow models** | Use `--solid` for objects that look hollow after voxelisation (e.g. thin-walled meshes). |
+| **Face expressions** | Increase `--density` (4–8) rather than `--quality` — you get richer texture without adding elements. |
+| **Build time** | Quality 5 on a complex mesh can take several seconds. Release build is ~10× faster than Debug. |
+
+---
+
+## Dependencies (auto-fetched via CMake FetchContent)
+
+| Library | Version | Purpose |
+|---|---|---|
+| [glm](https://github.com/g-truc/glm) | 1.0.1 | Math (vectors, matrices) |
+| [nlohmann/json](https://github.com/nlohmann/json) | 3.11.3 | JSON serialisation |
+| [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) | 2.0.0rc13 | OBJ parsing |
+| [tinygltf](https://github.com/syoyo/tinygltf) | 2.9.3 | glTF/glb parsing |
+| [stb](https://github.com/nothings/stb) | latest | PNG writing (`stb_image_write`) |
+
+---
+
+## Changelog
+
+### v1.1.0
+- **Greedy meshing is now geometry-only** — colour no longer affects merge decisions, producing far fewer elements for complex models
+- **Added `--density` option** — controls texture pixels per voxel (1–16); default 1 preserves previous behaviour
+- `TextureAtlas` redesigned from a 1-D colour strip to a 2-D strip-packing atlas with power-of-2 dimensions
+- `McModel::build()` now accepts `VoxelGrid` and `density`; performs three-phase atlas fill (allocate → finalise → fill)
+- Interactive mode now prompts for density
+
+### v1.0.0
+- Initial release: OBJ/glTF loading, SAT voxelisation, colour-based greedy meshing, 1-D colour-strip atlas

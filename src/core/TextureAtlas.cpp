@@ -7,136 +7,116 @@
 #include <stdexcept>
 #include <cmath>
 #include <iostream>
-
-// ─────────────────────────────────────────────────────────────────────────────
-// How the atlas maps to Minecraft UVs
-// ─────────────────────────────────────────────────────────────────────────────
-//
-//  Atlas is S×S pixels (S = power-of-2, min 16).
-//  Color i lives at pixel  (px, py) = (i % S, i / S).
-//
-//  Minecraft UV space is [0,16] on both axes = full texture.
-//  For an S×S texture: 1 UV unit = S/16 pixels.
-//    → pixel px  corresponds to UV  px * (16 / S)
-//
-//  S=16:  1 UV unit = 1 px   →  UV [0,0,1,1], [1,0,2,1] … (clean integers)
-//  S=32:  1 UV unit = 2 px   →  UV [0,0,0.5,0.5], [0.5,0,1.0,0.5] …
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// Why all pixels must be FULLY OPAQUE (no alpha = 0 anywhere)
-// ─────────────────────────────────────────────────────────────────────────────
-//
-//  Minecraft's item renderer runs on OpenGL / Direct3D hardware.
-//  Even when the sampler is set to "nearest", the GPU can sample at texel
-//  boundaries when UV coords land exactly on a pixel edge (a floating-point
-//  precision issue). A transparent (alpha=0) neighbor texel bleeds in and
-//  makes the face appear semi-transparent or completely invisible.
-//
-//  Every vanilla and modded Minecraft texture avoids this by being a fully
-//  opaque image with no empty / transparent regions. We do the same:
-//    • Occupied slots → written with their color, alpha = 255.
-//    • Unused slots   → filled with solid WHITE (255,255,255), alpha = 255.
-//
-//  The PNG therefore looks like a real painted texture — white background
-//  with colored pixels at the occupied positions — not a mostly-empty
-//  transparent image.
-// ─────────────────────────────────────────────────────────────────────────────
+#include <algorithm>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-int TextureAtlas::computeAtlasSize(int n) {
-    int S = 16;
-    while (S * S < n)
-        S *= 2;
-    return S;
+int TextureAtlas::nextPow2(int v) {
+    int p = 1;
+    while (p < v) p <<= 1;
+    return p;
 }
 
-uint32_t TextureAtlas::packColor(const glm::vec3 &c) {
-    uint8_t r = static_cast<uint8_t>(std::round(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f));
-    uint8_t g = static_cast<uint8_t>(std::round(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f));
-    uint8_t b = static_cast<uint8_t>(std::round(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f));
-    return (static_cast<uint32_t>(r) << 16) |
-           (static_cast<uint32_t>(g) <<  8) |
-            static_cast<uint32_t>(b);
+// ── Constructor ───────────────────────────────────────────────────────────────
+
+TextureAtlas::TextureAtlas(int maxRowWidth)
+    : maxRowWidth_(std::max(1, maxRowWidth)) {}
+
+// ── Phase 1: Allocate ─────────────────────────────────────────────────────────
+
+TextureAtlas::Region TextureAtlas::allocate(int w, int h) {
+    if (finalized_)
+        throw std::logic_error("TextureAtlas: allocate() called after finalize().");
+    if (w <= 0) w = 1;
+    if (h <= 0) h = 1;
+
+    // If the new quad doesn't fit on the current row, start a new one.
+    if (curX_ + w > maxRowWidth_ && curX_ > 0) {
+        curY_  += rowH_;
+        curX_   = 0;
+        rowH_   = 0;
+    }
+
+    Region r{ curX_, curY_, w, h };
+
+    curX_    += w;
+    rowH_     = std::max(rowH_, h);
+    packedW_  = std::max(packedW_, curX_);
+    packedH_  = curY_ + rowH_;   // updated after every allocation
+
+    return r;
 }
 
-TextureAtlas::UVRect TextureAtlas::buildUV(int col) const {
-    int S     = computeAtlasSize(static_cast<int>(colors_.size()));
-    int px    = col % S;
-    int py    = col / S;
-    float sc  = 16.0f / static_cast<float>(S); // UV units per pixel
-    return {
-        static_cast<float>(px)     * sc,
-        static_cast<float>(py)     * sc,
-        static_cast<float>(px + 1) * sc,
-        static_cast<float>(py + 1) * sc
-    };
+// ── Phase 2: Finalize ─────────────────────────────────────────────────────────
+
+void TextureAtlas::finalize() {
+    if (finalized_) return;
+
+    if (packedW_ == 0 || packedH_ == 0) {
+        atlasW_ = atlasH_ = 1;
+    } else {
+        // Square atlas: take the larger of the two packed dimensions so both
+        // width and height are the same power-of-2.  This gives maximum
+        // compatibility with MC and GPU drivers that prefer square textures.
+        int side = nextPow2(std::max(packedW_, packedH_));
+        atlasW_  = side;
+        atlasH_  = side;
+    }
+
+    pixels_.assign(static_cast<size_t>(atlasW_) * atlasH_, glm::vec3(0.0f));
+    finalized_ = true;
+
+    if (atlasW_ > 8192 || atlasH_ > 8192)
+        std::cerr << "[TextureAtlas] WARNING: atlas is " << atlasW_ << "×" << atlasH_
+                  << " px — consider using a lower --density value.\n";
+
+    std::cout << "[TextureAtlas] Layout finalised: " << atlasW_ << " × " << atlasH_
+              << " px (packed area " << packedW_ << " × " << packedH_ << " px)\n";
 }
 
-// ── Public interface ──────────────────────────────────────────────────────────
+// ── Phase 3: Set pixels ───────────────────────────────────────────────────────
 
-TextureAtlas::UVRect TextureAtlas::addColor(const glm::vec3 &color) {
-    uint32_t key = packColor(color);
-    auto it = colorToIndex_.find(key);
-    if (it != colorToIndex_.end())
-        return buildUV(it->second);
-
-    int col = static_cast<int>(colors_.size());
-    colors_.push_back(color);
-    colorToIndex_[key] = col;
-    return buildUV(col); // provisional — caller re-queries via recomputeUV()
+void TextureAtlas::setPixel(int x, int y, const glm::vec3 &color) {
+    if (!finalized_)
+        throw std::logic_error("TextureAtlas: setPixel() called before finalize().");
+    if (x < 0 || x >= atlasW_ || y < 0 || y >= atlasH_) return;
+    pixels_[x + y * atlasW_] = color;
 }
 
-TextureAtlas::UVRect TextureAtlas::recomputeUV(int col) const {
-    return buildUV(col);
+// ── Phase 4: UV query ─────────────────────────────────────────────────────────
+
+TextureAtlas::UVRect TextureAtlas::regionUV(const Region &r) const {
+    if (!finalized_)
+        throw std::logic_error("TextureAtlas: regionUV() called before finalize().");
+
+    float fw = static_cast<float>(atlasW_);
+    float fh = static_cast<float>(atlasH_);
+    float u1 = (static_cast<float>(r.x)        / fw) * 16.0f;
+    float v1 = (static_cast<float>(r.y)        / fh) * 16.0f;
+    float u2 = (static_cast<float>(r.x + r.w)  / fw) * 16.0f;
+    float v2 = (static_cast<float>(r.y + r.h)  / fh) * 16.0f;
+    return {u1, v1, u2, v2};
 }
 
-int TextureAtlas::getColorIndex(const glm::vec3 &color) const {
-    auto it = colorToIndex_.find(packColor(color));
-    return (it != colorToIndex_.end()) ? it->second : -1;
-}
-
-// ── PNG output ────────────────────────────────────────────────────────────────
+// ── Write PNG ─────────────────────────────────────────────────────────────────
 
 void TextureAtlas::writePng(const std::string &path) const {
-    if (colors_.empty()) {
-        std::cerr << "[TextureAtlas] Warning: no colors to write.\n";
-        return;
+    if (!finalized_)
+        throw std::logic_error("TextureAtlas: writePng() called before finalize().");
+
+    int w = atlasW_, h = atlasH_;
+    std::vector<uint8_t> raw(static_cast<size_t>(w) * h * 3);
+
+    for (int i = 0; i < w * h; i++) {
+        const glm::vec3 &c = pixels_[i];
+        raw[i * 3 + 0] = static_cast<uint8_t>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
+        raw[i * 3 + 1] = static_cast<uint8_t>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
+        raw[i * 3 + 2] = static_cast<uint8_t>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
     }
 
-    const int S        = atlasSize();
-    const int N        = colorCount();
-    constexpr int CH   = 4; // RGBA
-
-    // ── Initialize every pixel to solid white (fully opaque) ─────────────────
-    //
-    // This is the critical step. Do NOT leave unused pixels as alpha=0.
-    // White is the most neutral fallback: if a UV ever accidentally lands
-    // on an unused slot it will appear white rather than invisible.
-    std::vector<uint8_t> pixels(static_cast<size_t>(S * S * CH), 0);
-    for (int i = 0; i < S * S * CH; i += CH) {
-        pixels[i + 0] = 255; // R
-        pixels[i + 1] = 255; // G
-        pixels[i + 2] = 255; // B
-        pixels[i + 3] = 255; // A — FULLY OPAQUE
-    }
-
-    // ── Write each registered color into its pixel slot ───────────────────────
-    for (int i = 0; i < N; i++) {
-        int px   = i % S;
-        int py   = i / S;
-        int base = (py * S + px) * CH;
-
-        const glm::vec3 &c = colors_[i];
-        pixels[base + 0] = static_cast<uint8_t>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
-        pixels[base + 1] = static_cast<uint8_t>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
-        pixels[base + 2] = static_cast<uint8_t>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
-        pixels[base + 3] = 255; // fully opaque
-    }
-
-    if (!stbi_write_png(path.c_str(), S, S, CH, pixels.data(), S * CH))
+    int result = stbi_write_png(path.c_str(), w, h, 3, raw.data(), w * 3);
+    if (!result)
         throw std::runtime_error("TextureAtlas: failed to write PNG to " + path);
 
-    std::cout << "[TextureAtlas] Wrote " << N << " color(s) into "
-              << S << "x" << S << " opaque RGBA atlas: " << path << "\n";
+    std::cout << "[TextureAtlas] Wrote atlas (" << w << "×" << h << " px) to: " << path << "\n";
 }

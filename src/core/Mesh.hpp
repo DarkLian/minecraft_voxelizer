@@ -4,45 +4,51 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <cstdint>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mesh — plain data container holding geometry loaded from any 3D file format.
-// Format-agnostic; both ObjLoader and GltfLoader produce a Mesh.
+// This is format-agnostic; both ObjLoader and GltfLoader produce a Mesh.
 // ─────────────────────────────────────────────────────────────────────────────
 class Mesh {
 public:
+    // ── Sub-types ─────────────────────────────────────────────────────────────
 
     struct Vertex {
         glm::vec3 position;
-        glm::vec2 uv;       // texture coordinate in [0,1] (0,0 if mesh has none)
-        glm::vec3 normal;
+        glm::vec2 uv;     // texture coordinate
+        glm::vec3 normal; // surface normal
     };
 
     struct Triangle {
         std::array<int, 3> vertexIndices;
-        int materialIndex;  // index into materials[], -1 = default white
-    };
-
-    // ── Texture image ─────────────────────────────────────────────────────────
-    // Decoded RGBA pixel data for a single diffuse texture.
-    // Loaded by the file loader (ObjLoader / GltfLoader) when the MTL/glTF
-    // references an image file. If empty, sampleColor falls back to baseColor.
-    struct TextureImage {
-        std::vector<uint8_t> pixels; // RGBA, row-major, top-to-bottom
-        int width  = 0;
-        int height = 0;
-        bool loaded() const { return !pixels.empty() && width > 0 && height > 0; }
+        int materialIndex; // index into materials[], -1 = default white
     };
 
     struct Material {
-        std::string   name;
-        glm::vec3     baseColor  = glm::vec3(1.0f); // flat fallback color (RGB 0-1)
-        std::string   texturePath;                  // path to diffuse image, may be empty
-        TextureImage  texture;                      // decoded pixels (loaded by loader)
+        std::string name;
+        glm::vec3   baseColor   = glm::vec3(1.0f); // flat fallback colour (RGB 0-1)
+        std::string texturePath;                    // resolved path, may be empty
+
+        // Decoded texture pixels (RGB or RGBA, row-major, row 0 = top).
+        // Empty when no texture was loaded or the file could not be read.
+        std::vector<uint8_t> imageData;
+        int imageW        = 0;
+        int imageH        = 0;
+        int imageChannels = 3;  // 3 = RGB, 4 = RGBA
+
+        // OBJ: UVs have V=0 at bottom → flipV = true.
+        // glTF 2.0: UVs have V=0 at top  → flipV = false.
+        bool flipV = false;
+
+        bool hasTexture() const { return !imageData.empty() && imageW > 0 && imageH > 0; }
     };
 
+    // ── Axis-Aligned Bounding Box helper ──────────────────────────────────────
     struct AABB {
-        glm::vec3 min, max;
+        glm::vec3 min;
+        glm::vec3 max;
+
         glm::vec3 size()   const { return max - min; }
         glm::vec3 center() const { return (min + max) * 0.5f; }
     };
@@ -56,20 +62,16 @@ public:
 
     bool isEmpty() const { return vertices.empty() || triangles.empty(); }
 
+    // Computes tight AABB over all vertex positions.
     AABB computeBounds() const;
 
+    // Convenience: get the three vertices of a triangle.
     std::array<Vertex, 3> getTriangleVertices(const Triangle &tri) const;
 
-    // Sample the color for a point on a triangle.
-    //
-    // barycentricWeights = (w0, w1) where w2 = 1 - w0 - w1.
-    // These are the weights for vertexIndices[0] and vertexIndices[1].
-    //
-    // If the material has a loaded texture:
-    //   → interpolates the three vertex UVs with the barycentric weights,
-    //     then performs a nearest-neighbor sample of the texture image.
-    // Otherwise:
-    //   → returns material.baseColor.
+    // Sample the colour at a given triangle + barycentric weights (bary.x for
+    // vertex 0, bary.y for vertex 1, implied bary.z = 1 - x - y for vertex 2).
+    // If the material has a decoded texture image the UV is interpolated and
+    // sampled; otherwise the flat baseColor is returned.
     glm::vec3 sampleColor(const Triangle &tri,
-                          const glm::vec2 &barycentricWeights) const;
+                          const glm::vec2 &bary) const;
 };

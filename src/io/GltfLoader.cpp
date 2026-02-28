@@ -6,60 +6,28 @@
 #include "io/GltfLoader.hpp"
 #include <stdexcept>
 #include <iostream>
-#include <filesystem>
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Texture loading notes
-// ─────────────────────────────────────────────────────────────────────────────
-// tinygltf (with STB_IMAGE_IMPLEMENTATION defined above) automatically decodes
-// every image referenced by the model into raw pixel data stored in
-// tinygltf::Image::image (vector<uint8_t>). This works for all three cases:
-//
-//   .glb                 — images embedded in the binary buffer
-//   .gltf + external     — "uri": "textures/diffuse.png" resolved from base dir
-//   .gltf + base64       — "uri": "data:image/png;base64,..." decoded inline
-//
-// IMPORTANT: tinygltf resolves external image URIs relative to the directory
-// containing the .gltf file, which it derives from the path we pass to
-// LoadASCIIFromFile(). If we pass a relative path and the working directory
-// differs from the file's actual location, image resolution silently fails
-// (img.image is empty) and every texture falls back to baseColor (white).
-// We therefore convert the input path to an absolute path first.
-//
-// Component count from tinygltf:
-//   1 = greyscale        → replicate into R,G,B; A = 255
-//   2 = greyscale+alpha  → replicate into R,G,B; keep A
-//   3 = RGB              → A = 255
-//   4 = RGBA             → copy directly
-// All cases are normalised to RGBA (4 channels) for Mesh::sampleColor.
-// ─────────────────────────────────────────────────────────────────────────────
 
 Mesh GltfLoader::load(const std::string &path) {
     std::cout << "[GltfLoader] Loading: " << path << "\n";
-
-    // Resolve to absolute path so external image URIs in .gltf files are
-    // found correctly regardless of the current working directory.
-    const std::string absPath = std::filesystem::absolute(path).string();
 
     tinygltf::Model gltfModel;
     tinygltf::TinyGLTF loader;
     std::string err, warn;
 
     bool ok;
-    const std::string ext = absPath.substr(absPath.rfind('.') + 1);
+    std::string ext = path.substr(path.rfind('.') + 1);
     if (ext == "glb")
-        ok = loader.LoadBinaryFromFile(&gltfModel, &err, &warn, absPath);
+        ok = loader.LoadBinaryFromFile(&gltfModel, &err, &warn, path);
     else
-        ok = loader.LoadASCIIFromFile(&gltfModel, &err, &warn, absPath);
+        ok = loader.LoadASCIIFromFile(&gltfModel, &err, &warn, path);
 
     if (!warn.empty()) std::cerr << "[GltfLoader] Warning: " << warn << "\n";
-    if (!ok)
-        throw std::runtime_error("GltfLoader: " + err);
+    if (!ok)           throw std::runtime_error("GltfLoader: " + err);
 
     Mesh mesh;
 
     // ── Materials ─────────────────────────────────────────────────────────────
-    // Index 0 is always the white fallback; glTF materials start at index 1.
+    // Index 0 = default grey fallback
     {
         Mesh::Material def;
         def.name      = "default";
@@ -70,51 +38,56 @@ Mesh GltfLoader::load(const std::string &path) {
     for (const auto &gltfMat : gltfModel.materials) {
         Mesh::Material mat;
         mat.name      = gltfMat.name;
-        mat.baseColor = extractBaseColor(gltfMat); // fallback if no texture
+        mat.baseColor = extractBaseColor(gltfMat);
+        mat.flipV     = false; // glTF 2.0: V=0 at top — no flip needed
 
-        // ── Try to load the base-color texture ────────────────────────────────
-        const auto &pbr = gltfMat.pbrMetallicRoughness;
-        int texIdx      = pbr.baseColorTexture.index; // -1 if not set
-
+        // ── Extract base-colour texture ────────────────────────────────────
+        int texIdx = gltfMat.pbrMetallicRoughness.baseColorTexture.index;
         if (texIdx >= 0 && texIdx < static_cast<int>(gltfModel.textures.size())) {
             int imgIdx = gltfModel.textures[texIdx].source;
-
             if (imgIdx >= 0 && imgIdx < static_cast<int>(gltfModel.images.size())) {
-                const tinygltf::Image &img = gltfModel.images[imgIdx];
+                const auto &img = gltfModel.images[imgIdx];
 
+                // tinygltf uses stb_image to decode embedded/external images
+                // into img.image (vector<uint8_t>), img.width, img.height,
+                // img.component.
                 if (!img.image.empty() && img.width > 0 && img.height > 0) {
-                    mat.texture.width  = img.width;
-                    mat.texture.height = img.height;
+                    int ch = img.component;  // 1, 2, 3, or 4
 
-                    // Normalise to 4-channel RGBA
-                    const int ch   = img.component;
-                    const int npix = img.width * img.height;
-                    mat.texture.pixels.resize(static_cast<size_t>(npix * 4));
+                    if (ch >= 3) {
+                        // Copy and drop alpha if present (keep only RGB)
+                        mat.imageW        = img.width;
+                        mat.imageH        = img.height;
+                        mat.imageChannels = 3;
+                        mat.imageData.reserve(static_cast<size_t>(img.width) * img.height * 3);
 
-                    for (int i = 0; i < npix; i++) {
-                        uint8_t r, g, b, a;
-                        const uint8_t *src = img.image.data() + i * ch;
-
-                        switch (ch) {
-                            case 1:  r = g = b = src[0]; a = 255;    break;
-                            case 2:  r = g = b = src[0]; a = src[1]; break;
-                            case 3:  r = src[0]; g = src[1]; b = src[2]; a = 255; break;
-                            default: r = src[0]; g = src[1]; b = src[2]; a = src[3]; break;
+                        for (size_t px = 0; px < static_cast<size_t>(img.width) * img.height; px++) {
+                            mat.imageData.push_back(img.image[px * ch + 0]); // R
+                            mat.imageData.push_back(img.image[px * ch + 1]); // G
+                            mat.imageData.push_back(img.image[px * ch + 2]); // B
                         }
 
-                        uint8_t *dst = mat.texture.pixels.data() + i * 4;
-                        dst[0] = r; dst[1] = g; dst[2] = b; dst[3] = a;
-                    }
+                        std::cout << "[GltfLoader]   Loaded texture for '"
+                                  << mat.name << "' ("
+                                  << img.width << "×" << img.height
+                                  << ", " << ch << " ch)\n";
+                    } else {
+                        // Greyscale — expand to RGB
+                        mat.imageW        = img.width;
+                        mat.imageH        = img.height;
+                        mat.imageChannels = 3;
+                        mat.imageData.reserve(static_cast<size_t>(img.width) * img.height * 3);
 
-                    std::cout << "[GltfLoader]   Loaded texture for material '"
-                              << mat.name << "': "
-                              << img.width << "x" << img.height
-                              << " (" << ch << "ch -> RGBA)\n";
+                        for (size_t px = 0; px < static_cast<size_t>(img.width) * img.height; px++) {
+                            uint8_t grey = img.image[px * ch];
+                            mat.imageData.push_back(grey);
+                            mat.imageData.push_back(grey);
+                            mat.imageData.push_back(grey);
+                        }
+                    }
                 } else {
-                    std::cerr << "[GltfLoader]   Warning: image " << imgIdx
-                              << " for material '" << mat.name
-                              << "' has no decoded pixel data. "
-                              << "Falling back to baseColor.\n";
+                    std::cerr << "[GltfLoader]   WARNING: texture for '"
+                              << mat.name << "' could not be decoded.\n";
                 }
             }
         }
@@ -130,8 +103,8 @@ Mesh GltfLoader::load(const std::string &path) {
         for (const auto &prim : gltfMesh.primitives) {
             if (prim.mode != TINYGLTF_MODE_TRIANGLES) continue;
 
-            auto getAccessor = [&](int accId) -> const tinygltf::Accessor * {
-                return (accId >= 0) ? &gltfModel.accessors[accId] : nullptr;
+            auto getAccessor = [&](int id) -> const tinygltf::Accessor * {
+                return (id < 0) ? nullptr : &gltfModel.accessors[id];
             };
             auto getBuffer = [&](const tinygltf::Accessor *acc) -> const uint8_t * {
                 if (!acc) return nullptr;
@@ -140,30 +113,26 @@ Mesh GltfLoader::load(const std::string &path) {
                 return buf.data.data() + bv.byteOffset + acc->byteOffset;
             };
 
-            auto posAcc  = getAccessor(prim.attributes.count("POSITION")
-                               ? prim.attributes.at("POSITION") : -1);
-            auto uvAcc   = getAccessor(prim.attributes.count("TEXCOORD_0")
-                               ? prim.attributes.at("TEXCOORD_0") : -1);
-            auto normAcc = getAccessor(prim.attributes.count("NORMAL")
-                               ? prim.attributes.at("NORMAL") : -1);
+            auto posAcc  = getAccessor(prim.attributes.count("POSITION")    ? prim.attributes.at("POSITION")    : -1);
+            auto uvAcc   = getAccessor(prim.attributes.count("TEXCOORD_0")  ? prim.attributes.at("TEXCOORD_0")  : -1);
+            auto normAcc = getAccessor(prim.attributes.count("NORMAL")      ? prim.attributes.at("NORMAL")      : -1);
 
             if (!posAcc) continue;
 
-            const auto *positions = reinterpret_cast<const float *>(getBuffer(posAcc));
-            const auto *uvs       = uvAcc   ? reinterpret_cast<const float *>(getBuffer(uvAcc))   : nullptr;
-            const auto *normals   = normAcc ? reinterpret_cast<const float *>(getBuffer(normAcc)) : nullptr;
+            const float *positions = reinterpret_cast<const float *>(getBuffer(posAcc));
+            const float *uvs       = uvAcc   ? reinterpret_cast<const float *>(getBuffer(uvAcc))   : nullptr;
+            const float *normals   = normAcc ? reinterpret_cast<const float *>(getBuffer(normAcc)) : nullptr;
 
             int baseVertex = static_cast<int>(mesh.vertices.size());
 
             for (size_t i = 0; i < posAcc->count; i++) {
                 Mesh::Vertex v;
                 v.position = glm::vec3(positions[i*3], positions[i*3+1], positions[i*3+2]);
-                if (uvs)     v.uv     = glm::vec2(uvs[i*2],       uvs[i*2+1]);
+                if (uvs)     v.uv     = glm::vec2(uvs[i*2],     uvs[i*2+1]);
                 if (normals) v.normal = glm::vec3(normals[i*3], normals[i*3+1], normals[i*3+2]);
                 mesh.vertices.push_back(v);
             }
 
-            // +1 offset because mesh.materials[0] is the white fallback
             int matIndex = (prim.material >= 0) ? prim.material + 1 : 0;
 
             if (prim.indices >= 0) {
@@ -184,12 +153,10 @@ Mesh GltfLoader::load(const std::string &path) {
 
                 for (size_t i = 0; i + 2 < idxAcc.count; i += 3) {
                     Mesh::Triangle tri;
-                    tri.vertexIndices = {
-                        baseVertex + getIndex(i),
-                        baseVertex + getIndex(i + 1),
-                        baseVertex + getIndex(i + 2)
-                    };
-                    tri.materialIndex = matIndex;
+                    tri.vertexIndices  = { baseVertex + getIndex(i),
+                                           baseVertex + getIndex(i+1),
+                                           baseVertex + getIndex(i+2) };
+                    tri.materialIndex  = matIndex;
                     mesh.triangles.push_back(tri);
                 }
             }
@@ -197,11 +164,10 @@ Mesh GltfLoader::load(const std::string &path) {
     }
 
     std::cout << "[GltfLoader] Loaded " << mesh.vertices.size() << " vertices, "
-              << mesh.triangles.size() << " triangles, "
-              << (mesh.materials.size() - 1) << " material(s).\n";
+              << mesh.triangles.size() << " triangles.\n";
 
     if (mesh.isEmpty())
-        throw std::runtime_error("GltfLoader: empty mesh: " + path);
+        throw std::runtime_error("GltfLoader: file produced an empty mesh: " + path);
 
     return mesh;
 }

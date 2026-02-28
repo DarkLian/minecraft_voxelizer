@@ -20,12 +20,6 @@ int Voxelizer::qualityToResolution(int quality) {
 
 Voxelizer::Voxelizer(Config cfg) : cfg_(cfg) {}
 
-// ── Luminance helper ──────────────────────────────────────────────────────────
-
-static float luminance(const glm::vec3 &c) {
-    return 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
-}
-
 // ── Main voxelization ─────────────────────────────────────────────────────────
 
 VoxelGrid Voxelizer::voxelize(const Mesh &mesh) const {
@@ -44,24 +38,46 @@ VoxelGrid Voxelizer::voxelize(const Mesh &mesh) const {
 
     VoxelGrid grid(res, res, res);
 
-    // Per-voxel best luminance seen so far — used to pick the
-    // brightest/most-colourful texture sample when multiple triangles
-    // overlap the same voxel.  Many packed UV atlases are mostly black;
-    // seam/edge triangles often sample black regions and should lose.
-    // Stored separately so we never write a dim colour over a bright one.
-    std::vector<float> bestLum(static_cast<size_t>(res) * res * res, -1.0f);
-    auto lumIdx = [&](int x, int y, int z) {
+    // Per-voxel: distance from voxel center to the winning triangle's plane.
+    // The CLOSEST surface wins — this correctly handles layered geometry such
+    // as eyes (dark, close) sitting in front of face skin (bright, behind).
+    // Luminance-based selection was wrong: it actively discarded dark eye/pupil
+    // triangles in favour of the brighter skin geometry behind them.
+    const float kInfDist = 1e9f;
+    std::vector<float> bestDist(static_cast<size_t>(res) * res * res, kInfDist);
+    std::vector<int>   bestTri (static_cast<size_t>(res) * res * res, -1);
+    auto gridIdx = [&](int x, int y, int z) {
         return x + y * res + z * res * res;
+    };
+
+    // Helper: distance from point p to the plane of triangle (a,b,c).
+    // Returns the absolute perpendicular distance.
+    auto distToPlane = [](const glm::vec3 &p,
+                          const glm::vec3 &a,
+                          const glm::vec3 &b,
+                          const glm::vec3 &c) -> float {
+        glm::vec3 n = glm::cross(b - a, c - a);
+        float len = glm::length(n);
+        if (len < 1e-10f) return 1e9f;
+        return std::abs(glm::dot(n / len, p - a));
     };
 
     int filledCount = 0;
     int blackVoxels = 0;
 
+    int triIdx = 0;
     for (const auto &tri : mesh.triangles) {
         auto verts = mesh.getTriangleVertices(tri);
         glm::vec3 p0 = verts[0].position;
         glm::vec3 p1 = verts[1].position;
         glm::vec3 p2 = verts[2].position;
+
+        // Skip degenerate triangles: UV seam connectors and zero-area quads
+        // have near-zero cross-product length.  They sample UV island borders
+        // (usually black) and would corrupt voxels they touch.
+        glm::vec3 triNormal = glm::cross(p1 - p0, p2 - p0);
+        float triArea = glm::length(triNormal);
+        if (triArea < 1e-6f) { triIdx++; continue; }
 
         // AABB of this triangle in voxel space
         glm::vec3 triMin = glm::min(glm::min(p0, p1), p2);
@@ -86,53 +102,81 @@ VoxelGrid Voxelizer::voxelize(const Mesh &mesh) const {
                     if (!triangleOverlapsVoxel(p0, p1, p2, voxelCenter, halfSize))
                         continue;
 
-                    // ── Sample colour from this triangle ───────────────────
-                    glm::vec3 bary = barycentricCoords(voxelCenter, p0, p1, p2);
-                    bary = glm::clamp(bary, 0.0f, 1.0f);
-                    float sum = bary.x + bary.y + bary.z;
-                    if (sum > 1e-6f) bary /= sum;
+                    // Distance from voxel center to this triangle's plane.
+                    // Closer surface = this triangle is more "on top" visually.
+                    float dist = distToPlane(voxelCenter, p0, p1, p2);
 
-                    glm::vec3 color = mesh.sampleColor(tri, glm::vec2(bary.x, bary.y));
-                    float lum = luminance(color);
+                    int li = gridIdx(x, y, z);
 
-                    int li = lumIdx(x, y, z);
+                    if (!grid.isSolid(x, y, z) || dist < bestDist[li] - 1e-5f) {
+                        // First hit, or geometrically closer surface — sample and store.
+                        glm::vec3 bary = barycentricCoords(voxelCenter, p0, p1, p2);
+                        bary = glm::clamp(bary, 0.0f, 1.0f);
+                        float sum = bary.x + bary.y + bary.z;
+                        if (sum > 1e-6f) bary /= sum;
 
-                    if (!grid.isSolid(x, y, z)) {
-                        // First triangle: always store
-                        grid.set(x, y, z, color);
-                        bestLum[li] = lum;
-                        filledCount++;
-                    } else if (lum > bestLum[li] + 0.02f) {
-                        // Subsequent triangle: only overwrite if meaningfully
-                        // brighter — prefer textured surface hits over the
-                        // black UV-island-border that edge triangles sample.
-                        grid.setColor(x, y, z, color);
-                        bestLum[li] = lum;
+                        glm::vec3 color = mesh.sampleColor(tri, glm::vec2(bary.x, bary.y));
+
+                        if (!grid.isSolid(x, y, z)) {
+                            grid.set(x, y, z, color, triIdx);
+                            filledCount++;
+                        } else {
+                            grid.setColorAndTri(x, y, z, color, triIdx);
+                        }
+                        bestDist[li] = dist;
+                        bestTri[li]  = triIdx;
+
+                    } else if (dist < bestDist[li] + 1e-5f) {
+                        // Coplanar tie (same surface, different triangle).
+                        // Use luminance as secondary tiebreaker: prefer the
+                        // brighter sample, which is more likely to be a real
+                        // surface texel rather than a UV seam border pixel.
+                        glm::vec3 bary = barycentricCoords(voxelCenter, p0, p1, p2);
+                        bary = glm::clamp(bary, 0.0f, 1.0f);
+                        float sum = bary.x + bary.y + bary.z;
+                        if (sum > 1e-6f) bary /= sum;
+
+                        glm::vec3 color = mesh.sampleColor(tri, glm::vec2(bary.x, bary.y));
+                        float newLum = color.r * 0.299f + color.g * 0.587f + color.b * 0.114f;
+
+                        glm::vec3 existing = grid.getColor(x, y, z);
+                        float oldLum = existing.r * 0.299f + existing.g * 0.587f + existing.b * 0.114f;
+
+                        if (newLum > oldLum + 0.02f) {
+                            grid.setColorAndTri(x, y, z, color, triIdx);
+                            // bestDist stays the same (coplanar)
+                            bestTri[li] = triIdx;
+                        }
                     }
                 }
             }
         }
+        triIdx++;
     }
 
     if (cfg_.solidFill)
         floodFillSolid(grid);
 
-    // ── Count black voxels (diagnostic) ───────────────────────────────────
+    // ── Diagnostic ────────────────────────────────────────────────────────────
     if (cfg_.verbose) {
+        // Count voxels that are very dark (may indicate missing texture)
         for (int z = 0; z < res; z++)
             for (int y = 0; y < res; y++)
-                for (int x = 0; x < res; x++)
-                    if (grid.isSolid(x, y, z) && luminance(grid.getColor(x, y, z)) < 0.02f)
+                for (int x = 0; x < res; x++) {
+                    if (!grid.isSolid(x, y, z)) continue;
+                    const glm::vec3 c = grid.getColor(x, y, z);
+                    if (c.r < 0.02f && c.g < 0.02f && c.b < 0.02f)
                         blackVoxels++;
+                }
 
         std::cout << "[Voxelizer] Filled " << filledCount
                   << " / " << grid.totalVoxels() << " voxels ("
                   << (100.0f * filledCount / grid.totalVoxels()) << "%)\n";
         if (blackVoxels > 0)
-            std::cout << "[Voxelizer] WARNING: " << blackVoxels
-                      << " solid voxels still have near-black colour after "
-                      << "best-sample selection. Check that texture files are "
-                      << "loading correctly (see loader output above).\n";
+            std::cout << "[Voxelizer] NOTE: " << blackVoxels
+                      << " solid voxels are near-black — this is fine if the"
+                      << " model has dark eyes/pupils; check loader output if"
+                      << " unexpected.\n";
     }
 
     return grid;

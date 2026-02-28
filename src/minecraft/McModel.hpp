@@ -3,6 +3,7 @@
 #include "minecraft/McElement.hpp"
 #include "core/TextureAtlas.hpp"
 #include "core/VoxelGrid.hpp"
+#include "core/Mesh.hpp"
 #include "pipeline/GreedyMesher.hpp"
 #include <vector>
 #include <string>
@@ -11,49 +12,47 @@
 // McModel — assembles the complete Minecraft model from greedy mesher output,
 // then serializes to JSON (model) and PNG (texture atlas).
 //
-// Texture-density pipeline (v1.1):
-//   Each greedy quad covers one or more voxels.  The atlas paints
-//   (uCount × density) × (vCount × density) pixels per quad, sampling
-//   the VoxelGrid for per-voxel colours.
+// Texture baking pipeline (v1.2):
+//   For each pixel (pu, pv) in a quad's atlas region:
+//     1. Compute the pixel's exact 3D MC position on the voxel face.
+//     2. Look up which mesh triangle was stored for the owning voxel.
+//     3. Re-interpolate the triangle's UV coordinates at that 3D point.
+//     4. Sample the original mesh texture at the interpolated UV.
 //
-//   density = 1  →  1 pixel per voxel face  (compact, MC-safe)
-//   density = 2  →  2×2 pixels per voxel
-//   density = 4  →  4×4 pixels per voxel    (good detail)
-//   density = 8  →  8×8 pixels per voxel    (high detail, larger PNG)
+//   This gives true sub-voxel colour detail (face expressions, gradients,
+//   markings) as long as the source texture resolution supports it.
 //
-// Usage:
-//   McModel model("darkaddons:item/my_model");
-//   model.build(quads, grid, atlas, density);
-//   model.writeJson("out.json");
+//   density = 1  → 1 pixel per voxel (flat per-voxel colour)
+//   density = 4  → 4×4 pixels per voxel (4× sub-voxel resolution)
+//   density = 16 → 16×16 pixels per voxel (matches a 16px/block texture)
 // ─────────────────────────────────────────────────────────────────────────────
 class McModel {
 public:
     explicit McModel(const std::string &texturePath);
 
-    // Convert greedy-meshed quads into McElements and fill the TextureAtlas.
-    //   quads   — output from GreedyMesher::mesh()
-    //   grid    — voxel grid (used for per-pixel colour sampling)
-    //   atlas   — TextureAtlas to allocate regions into and fill
-    //   density — pixels per voxel (≥ 1)
     void build(const std::vector<GreedyMesher::Quad> &quads,
                const VoxelGrid                       &grid,
+               const Mesh                            &mesh,
                TextureAtlas                          &atlas,
                int                                    density = 1);
 
-    // Serialize to Minecraft JSON model format.
     void writeJson(const std::string &outputPath) const;
 
-    // ── Queries ───────────────────────────────────────────────────────────────
     int  elementCount() const { return static_cast<int>(elements_.size()); }
     bool isEmpty()      const { return elements_.empty(); }
-
-    // Warn if element count is approaching problematic thresholds.
-    void printStats() const;
+    void printStats()   const;
 
 private:
-    std::string          texturePath_;
+    std::string            texturePath_;
     std::vector<McElement> elements_;
 
     McElement buildElement(const GreedyMesher::Quad  &quad,
                            const TextureAtlas::UVRect &uv) const;
+
+    // Sample one atlas pixel from the original mesh texture via UV interpolation.
+    glm::vec3 samplePixel(const GreedyMesher::Quad &q,
+                          int pu, int pv,
+                          int density,
+                          const VoxelGrid &grid,
+                          const Mesh      &mesh) const;
 };

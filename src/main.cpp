@@ -9,6 +9,8 @@
 #include <string>
 #include <filesystem>
 #include <stdexcept>
+#include <algorithm>
+#include <cmath>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -16,14 +18,32 @@
 
 struct CliArgs {
     std::string inputPath;
-    std::string outputDir  = "./output";
+    std::string outputDir = "./output";
     std::string modelName;
-    std::string modId      = "mymod";
-    int quality            = 3;
-    int density            = 1;   // pixels per voxel in the texture atlas
-    bool solidFill         = false;
-    bool help              = false;
+    std::string modId     = "mymod";
+    int  quality          = 3;
+    int  density          = 0;   // 0 = auto (computed after mesh load)
+    bool solidFill        = false;
+    bool help             = false;
 };
+
+// ── Compute recommended density ───────────────────────────────────────────────
+// Optimal density = source_texture_size / grid_resolution, clamped to [1, 32].
+// If the mesh has no textures we return 1 (flat colour, density doesn't help).
+static int recommendedDensity(const Mesh &mesh, int gridRes) {
+    int maxTexSize = 0;
+    for (const auto &mat : mesh.materials)
+        if (mat.hasTexture())
+            maxTexSize = std::max(maxTexSize, std::max(mat.imageW, mat.imageH));
+
+    if (maxTexSize == 0) return 1;
+
+    // Round to nearest power of two for cleaner atlas subdivision
+    int raw = std::max(1, maxTexSize / gridRes);
+    int p = 1;
+    while (p * 2 <= raw) p *= 2;
+    return std::min(p, 32);
+}
 
 static void printUsage() {
     std::cout <<
@@ -31,50 +51,46 @@ static void printUsage() {
         "\n"
         "Options:\n"
         "  --quality  1-5    Voxel resolution (default: 3)\n"
-        "                      1 = 16³  fastest / blockiest\n"
-        "                      2 = 24³\n"
-        "                      3 = 32³  recommended\n"
-        "                      4 = 48³\n"
-        "                      5 = 64³  finest detail\n"
-        "  --density  1-16   Texture pixels per voxel (default: 1)\n"
-        "                      1 = 1 px/voxel  (compact, MC-safe)\n"
-        "                      2 = 2×2 px/voxel\n"
-        "                      4 = 4×4 px/voxel  (good detail)\n"
-        "                      8 = 8×8 px/voxel  (high detail)\n"
-        "                    Higher values produce larger PNGs and richer\n"
-        "                    colour detail without increasing element count.\n"
+        "                      1 = 16^3  fastest/blockiest\n"
+        "                      3 = 32^3  recommended\n"
+        "                      5 = 64^3  finest detail\n"
+        "  --density  N      Texture pixels per voxel face (default: auto)\n"
+        "                    Auto = source_texture_size / grid_resolution\n"
+        "                    e.g. 1024px texture + quality 5 (64^3) => density 16\n"
+        "                    Going higher than auto just blurs; no extra detail.\n"
         "  --output   <dir>  Output directory (default: ./output)\n"
         "  --name     <str>  Model/file name (default: input filename stem)\n"
         "  --modid    <str>  Mod namespace for texture path (default: mymod)\n"
         "  --solid           Fill solid interior voxels (default: off)\n"
         "  --help            Show this help\n"
         "\n"
-        "Examples:\n"
-        "  mc_voxelizer sword.obj\n"
-        "  mc_voxelizer dragon.gltf --quality 4 --density 4 --modid darkaddons --name dragon\n"
-        "  mc_voxelizer ship.obj --quality 5 --density 8 --solid --output ./assets\n"
+        "Density sweet spot by texture size:\n"
+        "  Texture    Q1(16^3) Q2(24^3) Q3(32^3) Q4(48^3) Q5(64^3)\n"
+        "   64x64        4        2        2        1        1\n"
+        "  256x256       16       8        8        4        4\n"
+        "  512x512       32      16       16        8        8\n"
+        " 1024x1024      32      32       32       16       16\n"
         "\n"
-        "Output:\n"
-        "  <output>/<name>.json   Minecraft model file\n"
-        "  <output>/<name>.png    Texture atlas\n";
+        "Examples:\n"
+        "  mc_voxelizer character.glb --quality 5\n"
+        "  mc_voxelizer character.glb --quality 5 --density 16\n"
+        "  mc_voxelizer sword.obj --quality 3 --modid mymod --name sword\n";
 }
 
 static CliArgs parseArgs(int argc, char **argv) {
     CliArgs args;
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "--help" || arg == "-h") {
-            args.help = true;
-            return args;
-        }
+        if (arg == "--help" || arg == "-h") { args.help = true; return args; }
+
         if (arg == "--quality" && i + 1 < argc) {
             args.quality = std::stoi(argv[++i]);
             if (args.quality < 1 || args.quality > 5)
-                throw std::invalid_argument("--quality must be 1–5.");
+                throw std::invalid_argument("--quality must be 1-5.");
         } else if (arg == "--density" && i + 1 < argc) {
             args.density = std::stoi(argv[++i]);
-            if (args.density < 1 || args.density > 16)
-                throw std::invalid_argument("--density must be 1–16.");
+            if (args.density < 1 || args.density > 64)
+                throw std::invalid_argument("--density must be 1-64.");
         } else if (arg == "--output" && i + 1 < argc) {
             args.outputDir = argv[++i];
         } else if (arg == "--name" && i + 1 < argc) {
@@ -99,11 +115,9 @@ static CliArgs parseArgs(int argc, char **argv) {
 static CliArgs interactivePrompt() {
     CliArgs args;
     std::cout << "--- Interactive Mode ---\n";
-    std::cout << "Drag and drop your 3D model file here (or type the path), then press Enter:\n> ";
+    std::cout << "Drag and drop your 3D model file here (or type the path):\n> ";
     std::string path;
     std::getline(std::cin, path);
-
-    // Clean up Windows drag-and-drop quotes
     if (!path.empty() && path.front() == '"' && path.back() == '"')
         path = path.substr(1, path.size() - 2);
     args.inputPath = path;
@@ -115,17 +129,19 @@ static CliArgs interactivePrompt() {
     if (!q.empty()) {
         args.quality = std::stoi(q);
         if (args.quality < 1 || args.quality > 5)
-            throw std::invalid_argument("--quality must be 1-5.");
+            throw std::invalid_argument("Quality must be 1-5.");
     }
 
-    std::cout << "Enter texture pixel density (1/2/4/8/16) [Enter = 1]:\n"
-              << "  Higher = richer colour detail, larger PNG file.\n> ";
+    std::cout << "Enter texture density (pixels per voxel) [Enter = auto]:\n"
+              << "  Recommended: source_texture_size / grid_resolution\n"
+              << "  e.g. 1024px texture + quality 5 => 16\n> ";
     std::string d; std::getline(std::cin, d);
     if (!d.empty()) {
         args.density = std::stoi(d);
-        if (args.density < 1 || args.density > 16)
-            throw std::invalid_argument("--density must be 1-16.");
+        if (args.density < 1 || args.density > 64)
+            throw std::invalid_argument("Density must be 1-64.");
     }
+    // 0 = auto, resolved after mesh load
 
     std::cout << "Enable solid interior fill? (y/n) [Enter = n]:\n> ";
     std::string s; std::getline(std::cin, s);
@@ -138,8 +154,7 @@ static CliArgs interactivePrompt() {
     std::cout << "Enter model name [Enter = use filename]:\n> ";
     std::string n; std::getline(std::cin, n);
     args.modelName = n.empty()
-        ? std::filesystem::path(args.inputPath).stem().string()
-        : n;
+        ? std::filesystem::path(args.inputPath).stem().string() : n;
 
     std::cout << "\nStarting generation...\n";
     return args;
@@ -152,14 +167,12 @@ static void pauseConsole() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main pipeline
-// ─────────────────────────────────────────────────────────────────────────────
 int main(int argc, char **argv) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::cout << "╔══════════════════════════════════════╗\n"
-              << "║   Minecraft Voxelizer  v1.1.0        ║\n"
+              << "║   Minecraft Voxelizer  v1.2.0        ║\n"
               << "╚══════════════════════════════════════╝\n\n";
 
     CliArgs args;
@@ -171,35 +184,53 @@ int main(int argc, char **argv) {
         pauseConsole();
         return 1;
     }
-
     if (args.help) { printUsage(); return 0; }
 
     std::filesystem::create_directories(args.outputDir);
-
     std::string jsonOut = args.outputDir + "/" + args.modelName + ".json";
     std::string pngOut  = args.outputDir + "/" + args.modelName + ".png";
     std::string texPath = args.modId + ":item/" + args.modelName;
-
-    std::cout << "Input:    " << args.inputPath << "\n"
-              << "Output:   " << args.outputDir << "\n"
-              << "Name:     " << args.modelName << "\n"
-              << "Quality:  " << args.quality
-              << " (" << Voxelizer::qualityToResolution(args.quality) << "³)\n"
-              << "Density:  " << args.density << " px/voxel\n"
-              << "Texture:  " << texPath << "\n\n";
 
     try {
         // ── Step 1: Load mesh ──────────────────────────────────────────────
         auto loader = MeshLoader::create(args.inputPath);
         Mesh mesh   = loader->load(args.inputPath);
 
-        // ── Step 2: Normalize to MC space ──────────────────────────────────
+        // ── Step 2: Resolve density (auto if not set) ──────────────────────
+        int gridRes = Voxelizer::qualityToResolution(args.quality);
+        if (args.density == 0) {
+            args.density = recommendedDensity(mesh, gridRes);
+            std::cout << "[Density] Auto-selected density = " << args.density
+                      << " (source_texture / grid = "
+                      << gridRes << "^3)\n";
+        } else {
+            int recommended = recommendedDensity(mesh, gridRes);
+            if (args.density > recommended && recommended > 1) {
+                std::cout << "[Density] WARNING: density=" << args.density
+                          << " exceeds recommended=" << recommended
+                          << " for this texture+quality combination.\n"
+                          << "          Pixels beyond the sweet spot are bilinearly"
+                          << " upscaled — no extra detail is gained.\n";
+            }
+        }
+
+        // ── Print settings ─────────────────────────────────────────────────
+        std::cout << "\nInput:    " << args.inputPath << "\n"
+                  << "Output:   " << args.outputDir << "\n"
+                  << "Name:     " << args.modelName << "\n"
+                  << "Quality:  " << args.quality << " (" << gridRes << "^3)\n"
+                  << "Density:  " << args.density << " px/voxel"
+                  << "  (atlas ~" << (gridRes * args.density)
+                  << "x" << (gridRes * args.density) << " px before packing)\n"
+                  << "Texture:  " << texPath << "\n\n";
+
+        // ── Step 3: Normalize to MC space ──────────────────────────────────
         Normalizer::Config normCfg;
         normCfg.snapFloor = true;
         Normalizer normalizer(normCfg);
         Mesh normalized = normalizer.normalize(mesh);
 
-        // ── Step 3: Voxelize ───────────────────────────────────────────────
+        // ── Step 4: Voxelize ───────────────────────────────────────────────
         Voxelizer::Config voxCfg;
         voxCfg.quality   = args.quality;
         voxCfg.solidFill = args.solidFill;
@@ -207,40 +238,36 @@ int main(int argc, char **argv) {
         Voxelizer voxelizer(voxCfg);
         VoxelGrid grid = voxelizer.voxelize(normalized);
 
-        // ── Step 4: Greedy mesh (geometry-only) ───────────────────────────
+        // ── Step 5: Greedy mesh ────────────────────────────────────────────
         GreedyMesher::Config meshCfg;
         meshCfg.verbose = true;
         GreedyMesher mesher(meshCfg);
         auto quads = mesher.mesh(grid);
 
         if (quads.empty()) {
-            std::cerr << "Error: no quads generated. "
-                      << "The mesh may be too small for the chosen quality level, "
-                      << "or the input file has geometry issues.\n";
+            std::cerr << "Error: no quads generated.\n";
             pauseConsole();
             return 1;
         }
 
-        // ── Step 5: Build texture atlas + Minecraft model ──────────────────
-        // The atlas strip width is capped at 4096 px; rows wrap automatically.
+        // ── Step 6: Build texture atlas + Minecraft model ──────────────────
         TextureAtlas atlas(4096);
         McModel model(texPath);
-        model.build(quads, grid, atlas, args.density);
+        model.build(quads, grid, normalized, atlas, args.density);
         model.printStats();
 
-        // ── Step 6: Write outputs ──────────────────────────────────────────
+        // ── Step 7: Write outputs ──────────────────────────────────────────
         atlas.writePng(pngOut);
         model.writeJson(jsonOut);
 
-        std::cout << "\n✓ Done!\n"
+        std::cout << "\nDone!\n"
                   << "  JSON: " << jsonOut << "\n"
                   << "  PNG:  " << pngOut  << "\n"
                   << "\nNext steps:\n"
                   << "  1. Copy " << args.modelName << ".json to:\n"
-                  << "       src/main/resources/assets/" << args.modId << "/models/item/\n"
+                  << "       assets/" << args.modId << "/models/item/\n"
                   << "  2. Copy " << args.modelName << ".png to:\n"
-                  << "       src/main/resources/assets/" << args.modId << "/textures/item/\n"
-                  << "  3. Open the .json in Blockbench to adjust display transforms.\n";
+                  << "       assets/" << args.modId << "/textures/item/\n";
 
         pauseConsole();
     } catch (const std::exception &e) {
@@ -248,6 +275,5 @@ int main(int argc, char **argv) {
         pauseConsole();
         return 1;
     }
-
     return 0;
 }

@@ -12,7 +12,8 @@ std::vector<GreedyMesher::Quad> GreedyMesher::mesh(const VoxelGrid &grid) const 
         meshFace(grid, static_cast<Face>(f), quads);
 
     if (cfg_.verbose)
-        std::cout << "[GreedyMesher] Generated " << quads.size() << " quads.\n";
+        std::cout << "[GreedyMesher] Quads (merged faces): " << quads.size()
+                  << "  (each quad = 1 MC element; less = better performance)\n";
 
     return quads;
 }

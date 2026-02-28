@@ -50,14 +50,16 @@ static void printUsage() {
         "Usage: mc_voxelizer <input.obj|.gltf|.glb> [options]\n"
         "\n"
         "Options:\n"
-        "  --quality  1-5    Voxel resolution (default: 3)\n"
-        "                      1 = 16^3  fastest/blockiest\n"
-        "                      3 = 32^3  recommended\n"
-        "                      5 = 64^3  finest detail\n"
+        "  --quality  1-7    Voxel resolution (default: 3)\n"
+        "                      1 =  16^3  fastest/blockiest\n"
+        "                      3 =  32^3  recommended default\n"
+        "                      5 =  64^3  good detail\n"
+        "                      6 =  96^3  face expressions visible\n"
+        "                      7 = 128^3  maximum detail (slow)\n"
         "  --density  N      Texture pixels per voxel face (default: auto)\n"
         "                    Auto = source_texture_size / grid_resolution\n"
-        "                    e.g. 1024px texture + quality 5 (64^3) => density 16\n"
-        "                    Going higher than auto just blurs; no extra detail.\n"
+        "                    e.g. 1024px texture + quality 7 (128^3) => density 8\n"
+        "                    Going higher than auto blurs with no extra detail.\n"
         "  --output   <dir>  Output directory (default: ./output)\n"
         "  --name     <str>  Model/file name (default: input filename stem)\n"
         "  --modid    <str>  Mod namespace for texture path (default: mymod)\n"
@@ -65,16 +67,15 @@ static void printUsage() {
         "  --help            Show this help\n"
         "\n"
         "Density sweet spot by texture size:\n"
-        "  Texture    Q1(16^3) Q2(24^3) Q3(32^3) Q4(48^3) Q5(64^3)\n"
-        "   64x64        4        2        2        1        1\n"
-        "  256x256       16       8        8        4        4\n"
-        "  512x512       32      16       16        8        8\n"
-        " 1024x1024      32      32       32       16       16\n"
+        "  Texture    Q3(32)  Q4(48)  Q5(64)  Q6(96)  Q7(128)\n"
+        "   256x256     8       5       4       2        2\n"
+        "   512x512    16      10       8       5        4\n"
+        "  1024x1024   32      21      16       8        8\n"
+        "  2048x2048   32      32      32      16       16\n"
         "\n"
-        "Examples:\n"
-        "  mc_voxelizer character.glb --quality 5\n"
-        "  mc_voxelizer character.glb --quality 5 --density 16\n"
-        "  mc_voxelizer sword.obj --quality 3 --modid mymod --name sword\n";
+        "Character face tip: use quality 6 or 7 for anime/detailed faces.\n"
+        "  mc_voxelizer character.glb --quality 6 --density 8\n"
+        "  mc_voxelizer character.glb --quality 7 --density 8\n";
 }
 
 static CliArgs parseArgs(int argc, char **argv) {
@@ -85,8 +86,8 @@ static CliArgs parseArgs(int argc, char **argv) {
 
         if (arg == "--quality" && i + 1 < argc) {
             args.quality = std::stoi(argv[++i]);
-            if (args.quality < 1 || args.quality > 5)
-                throw std::invalid_argument("--quality must be 1-5.");
+            if (args.quality < 1 || args.quality > 7)
+                throw std::invalid_argument("--quality must be 1-7.");
         } else if (arg == "--density" && i + 1 < argc) {
             args.density = std::stoi(argv[++i]);
             if (args.density < 1 || args.density > 64)
@@ -124,12 +125,13 @@ static CliArgs interactivePrompt() {
     if (args.inputPath.empty())
         throw std::invalid_argument("No input file specified.");
 
-    std::cout << "Enter voxel resolution quality (1-5) [Enter = 3]:\n> ";
+    std::cout << "Enter voxel resolution quality (1-7) [Enter = 3]:\n"
+              << "  6 = 96^3 (good for faces)  7 = 128^3 (maximum)\n> ";
     std::string q; std::getline(std::cin, q);
     if (!q.empty()) {
         args.quality = std::stoi(q);
-        if (args.quality < 1 || args.quality > 5)
-            throw std::invalid_argument("Quality must be 1-5.");
+        if (args.quality < 1 || args.quality > 7)
+            throw std::invalid_argument("Quality must be 1-7.");
     }
 
     std::cout << "Enter texture density (pixels per voxel) [Enter = auto]:\n"
@@ -172,7 +174,7 @@ int main(int argc, char **argv) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::cout << "╔══════════════════════════════════════╗\n"
-              << "║   Minecraft Voxelizer  v1.2.0        ║\n"
+              << "║   Minecraft Voxelizer  v1.3.0        ║\n"
               << "╚══════════════════════════════════════╝\n\n";
 
     CliArgs args;

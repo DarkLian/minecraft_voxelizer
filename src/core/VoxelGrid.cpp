@@ -1,23 +1,23 @@
 #include "core/VoxelGrid.hpp"
 #include <stdexcept>
-#include <numeric>
 
 VoxelGrid::VoxelGrid(int resX, int resY, int resZ)
     : resX(resX), resY(resY), resZ(resZ) {
     if (resX <= 0 || resY <= 0 || resZ <= 0)
         throw std::invalid_argument("VoxelGrid: resolution must be positive.");
-
     int total = resX * resY * resZ;
     colors_.assign(total, glm::vec3(0.0f));
     solid_.assign(total, 0);
-    triIndex_.assign(total, -1);
+    faceTri_.assign(total * FACE_COUNT, -1);
 }
 
 int VoxelGrid::idx(int x, int y, int z) const {
     return x + y * resX + z * resX * resY;
 }
 
-// ── Setters ───────────────────────────────────────────────────────────────────
+int VoxelGrid::faceIdx(int x, int y, int z, Face face) const {
+    return idx(x, y, z) * FACE_COUNT + static_cast<int>(face);
+}
 
 void VoxelGrid::setSolid(int x, int y, int z, bool solid) {
     if (!inBounds(x, y, z)) return;
@@ -29,23 +29,28 @@ void VoxelGrid::setColor(int x, int y, int z, const glm::vec3 &color) {
     colors_[idx(x, y, z)] = color;
 }
 
-void VoxelGrid::set(int x, int y, int z, const glm::vec3 &color, int triIndex) {
+void VoxelGrid::set(int x, int y, int z, const glm::vec3 &color) {
     if (!inBounds(x, y, z)) return;
     int i = idx(x, y, z);
-    solid_[i]    = 1;
-    colors_[i]   = color;
-    triIndex_[i] = triIndex;
+    solid_[i]  = 1;
+    colors_[i] = color;
+}
+
+void VoxelGrid::setFaceTriIndex(int x, int y, int z, Face face, int triIndex) {
+    if (!inBounds(x, y, z)) return;
+    faceTri_[faceIdx(x, y, z, face)] = triIndex;
 }
 
 void VoxelGrid::setColorAndTri(int x, int y, int z,
                                 const glm::vec3 &color, int triIndex) {
     if (!inBounds(x, y, z)) return;
-    int i = idx(x, y, z);
-    colors_[i]   = color;
-    triIndex_[i] = triIndex;
+    colors_[idx(x, y, z)] = color;
+    // Store as fallback across all face directions that don't have a winner yet
+    int base = idx(x, y, z) * FACE_COUNT;
+    for (int f = 0; f < FACE_COUNT; f++)
+        if (faceTri_[base + f] == -1)
+            faceTri_[base + f] = triIndex;
 }
-
-// ── Queries ───────────────────────────────────────────────────────────────────
 
 bool VoxelGrid::isSolid(int x, int y, int z) const {
     if (!inBounds(x, y, z)) return false;
@@ -57,14 +62,22 @@ glm::vec3 VoxelGrid::getColor(int x, int y, int z) const {
     return colors_[idx(x, y, z)];
 }
 
-int VoxelGrid::getTriIndex(int x, int y, int z) const {
+int VoxelGrid::getTriIndex(int x, int y, int z, Face face) const {
     if (!inBounds(x, y, z)) return -1;
-    return triIndex_[idx(x, y, z)];
+    return faceTri_[faceIdx(x, y, z, face)];
+}
+
+int VoxelGrid::getAnyTriIndex(int x, int y, int z) const {
+    if (!inBounds(x, y, z)) return -1;
+    int base = idx(x, y, z) * FACE_COUNT;
+    for (int f = 0; f < FACE_COUNT; f++)
+        if (faceTri_[base + f] != -1)
+            return faceTri_[base + f];
+    return -1;
 }
 
 bool VoxelGrid::isFaceExposed(int x, int y, int z, Face face) const {
     if (!isSolid(x, y, z)) return false;
-
     int nx = x, ny = y, nz = z;
     switch (face) {
         case Face::Down:  ny--; break;

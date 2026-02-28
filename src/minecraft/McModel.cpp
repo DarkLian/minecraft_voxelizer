@@ -42,7 +42,13 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
     voxel[q.vAxis]     = vv;
 
     // ── Try to bake from the stored triangle ──────────────────────────────────
-    int triIdx = grid.getTriIndex(voxel.x, voxel.y, voxel.z);
+    // Look up the triangle recorded for THIS specific face direction.
+    // This is what allows eyes (front-face triangle) to differ from
+    // hair (top-face triangle) on the same voxel.
+    int triIdx = grid.getTriIndex(voxel.x, voxel.y, voxel.z, q.face);
+    // Fall back to any recorded triangle if this face direction has none.
+    if (triIdx < 0)
+        triIdx = grid.getAnyTriIndex(voxel.x, voxel.y, voxel.z);
 
     if (triIdx >= 0 && triIdx < static_cast<int>(srcMesh.triangles.size())) {
         const Mesh::Triangle &tri = srcMesh.triangles[triIdx];
@@ -259,7 +265,10 @@ void McModel::writeJson(const std::string &outputPath) const {
 
 void McModel::printStats() const {
     int count = elementCount();
-    std::cout << "[McModel] Element count: " << count << "\n";
+    std::cout << "[McModel] MC elements (JSON cubes): " << count << "\n"
+              << "          NOTE: This is NOT the voxel count. Elements are\n"
+              << "          merged voxel faces — higher quality CAN produce\n"
+              << "          fewer elements when large flat regions merge.\n";
     if (count > McConstants::ELEMENT_CRASH_THRESHOLD)
         std::cout << "[McModel] WARNING: " << count
                   << " elements exceeds MC safe limit ("

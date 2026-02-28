@@ -4,9 +4,6 @@
 #include <vector>
 #include <cstdint>
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Face direction indices — Minecraft conventions.
-// ─────────────────────────────────────────────────────────────────────────────
 enum class Face : int {
     Down  = 0, // -Y
     Up    = 1, // +Y
@@ -18,11 +15,27 @@ enum class Face : int {
 
 constexpr int FACE_COUNT = 6;
 
+// Unit outward normals for each face direction
+inline glm::vec3 faceNormal(Face f) {
+    switch (f) {
+        case Face::Down:  return { 0, -1,  0};
+        case Face::Up:    return { 0,  1,  0};
+        case Face::North: return { 0,  0, -1};
+        case Face::South: return { 0,  0,  1};
+        case Face::West:  return {-1,  0,  0};
+        case Face::East:  return { 1,  0,  0};
+    }
+    return {0, 1, 0};
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// VoxelGrid — 3D grid of voxels.
-// Stores solid flags, per-voxel colours, and the index of the mesh triangle
-// that "won" colour selection for each voxel.  The triangle index is used
-// later by McModel to do per-pixel UV interpolation (texture baking).
+// VoxelGrid — stores solid flags, per-voxel flat colour (fallback), and
+// per-face-direction triangle indices for texture baking.
+//
+// Per-face triangle storage is the key insight for layered geometry:
+//   - Eye voxels: South face → face skin triangle (with eye UV)
+//                 Up face    → hair triangle (with hair UV)
+//   - Without this, the closer hair overwrites the eye on all faces.
 // ─────────────────────────────────────────────────────────────────────────────
 class VoxelGrid {
 public:
@@ -32,32 +45,38 @@ public:
     void setSolid(int x, int y, int z, bool solid);
     void setColor(int x, int y, int z, const glm::vec3 &color);
 
-    // Set solid + colour + source triangle index in one call.
-    void set(int x, int y, int z, const glm::vec3 &color, int triIndex = -1);
+    // Set solid + fallback colour.  triIndex stored separately per face.
+    void set(int x, int y, int z, const glm::vec3 &color);
 
-    // Update colour + triangle index without touching the solid flag.
+    // Record the winning triangle for a specific face direction on this voxel.
+    void setFaceTriIndex(int x, int y, int z, Face face, int triIndex);
+
+    // Update fallback colour (used when no per-face triangle is available).
     void setColorAndTri(int x, int y, int z, const glm::vec3 &color, int triIndex);
 
     // ── Queries ───────────────────────────────────────────────────────────────
     bool      isSolid(int x, int y, int z) const;
     glm::vec3 getColor(int x, int y, int z) const;
 
-    // Returns the mesh triangle index that provided this voxel's colour,
-    // or -1 if none was recorded (flat-colour material or flood-filled).
-    int getTriIndex(int x, int y, int z) const;
+    // Triangle index for the given face direction, or -1 if none recorded.
+    int getTriIndex(int x, int y, int z, Face face) const;
+
+    // Fallback: best triangle regardless of face direction (-1 if none).
+    int getAnyTriIndex(int x, int y, int z) const;
 
     bool isFaceExposed(int x, int y, int z, Face face) const;
     bool inBounds(int x, int y, int z) const;
 
-    // ── Dimensions ────────────────────────────────────────────────────────────
     int resX, resY, resZ;
     int totalVoxels() const { return resX * resY * resZ; }
     int solidCount()  const;
 
 private:
     int idx(int x, int y, int z) const;
+    int faceIdx(int x, int y, int z, Face face) const;
 
     std::vector<glm::vec3> colors_;
     std::vector<uint8_t>   solid_;
-    std::vector<int>       triIndex_; // mesh triangle index per voxel (-1 = none)
+    // Per-face triangle index: size = FACE_COUNT * totalVoxels
+    std::vector<int>       faceTri_;
 };

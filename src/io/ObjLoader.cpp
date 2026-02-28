@@ -114,9 +114,28 @@ Mesh ObjLoader::load(const std::string &path) {
         }
     }
 
+    // ── Material summary ──────────────────────────────────────────────────────
     std::cout << "[ObjLoader] Loaded " << mesh.vertices.size() << " vertices, "
               << mesh.triangles.size() << " triangles, "
               << mesh.materials.size() - 1 << " materials.\n";
+    for (size_t mi = 1; mi < mesh.materials.size(); mi++) {
+        const auto &mat = mesh.materials[mi];
+        if (mat.hasTexture()) {
+            std::cout << "[ObjLoader]   Mat[" << mi << "] '" << mat.name
+                      << "': texture " << mat.imageW << "×" << mat.imageH << " px"
+                      << " | baseColor(" << mat.baseColor.r << ","
+                      << mat.baseColor.g << "," << mat.baseColor.b << ")\n";
+        } else {
+            glm::vec3 bc = mat.baseColor;
+            std::cout << "[ObjLoader]   Mat[" << mi << "] '" << mat.name
+                      << "': flat colour (" << bc.r << "," << bc.g << "," << bc.b << ")";
+            if (!mat.texturePath.empty())
+                std::cout << "  ← WARNING: texture failed to load!";
+            else if (bc.r < 0.01f && bc.g < 0.01f && bc.b < 0.01f)
+                std::cout << "  ← NOTE: baseColor is black; voxels will appear black.";
+            std::cout << "\n";
+        }
+    }
 
     if (mesh.isEmpty())
         throw std::runtime_error("ObjLoader: file produced an empty mesh: " + path);

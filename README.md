@@ -1,8 +1,6 @@
 # Minecraft Voxelizer
 
-Converts 3D model files (`.obj`, `.gltf`, `.glb`) into Minecraft item model JSON + texture atlas PNG.
-
-Supports sub-voxel texture baking so face expressions, gradients, and fine surface detail are preserved at high quality settings. Handles layered geometry (hair over face, eyes on face skin) correctly by storing one winning triangle per face direction per voxel.
+Converts 3D model files (`.obj`, `.gltf`, `.glb`) into Minecraft item model JSON + texture atlas PNG, ready to drop into a resource pack.
 
 ## Building
 
@@ -42,7 +40,7 @@ mc_voxelizer <input.obj|.gltf|.glb> [options]
 | `--output <dir>` | `./output` | Output directory |
 | `--name <str>` | filename stem | Model and file name |
 | `--modid <str>` | `mymod` | Mod namespace for the texture path |
-| `--solid` | off | Fill enclosed interior voxels |
+| `--solid` | on | Fill enclosed interior voxels |
 | `--help` | | Print usage |
 
 ---
@@ -56,10 +54,10 @@ mc_voxelizer <input.obj|.gltf|.glb> [options]
 | 3 | 32³ | 0.5 | Recommended default |
 | 4 | 48³ | 0.33 | |
 | 5 | 64³ | 0.25 | Good detail |
-| 6 | 96³ | 0.167 | Face expressions visible |
+| 6 | 96³ | 0.167 | Fine surface detail |
 | 7 | 128³ | 0.125 | Maximum detail (slow, ~1–3 min) |
 
-Higher quality = finer voxels = more surface detail captured. The greedy mesher keeps element counts manageable even at quality 7 because it merges adjacent same-facing voxels into single rectangles regardless of colour.
+Higher quality = finer voxels = more surface detail. The greedy mesher keeps element counts manageable even at quality 7 by merging adjacent same-facing voxels into single rectangles.
 
 ---
 
@@ -71,7 +69,7 @@ Density controls how many pixels each voxel face gets in the output atlas. The s
 optimal_density = source_texture_size / grid_resolution
 ```
 
-Going above this upscales bilinearly — no extra detail is gained, and the PNG gets larger.
+Going above this upscales bilinearly — no extra detail is gained and the PNG gets larger.
 
 | Source texture | Q3 (32) | Q4 (48) | Q5 (64) | Q6 (96) | Q7 (128) |
 |----------------|:-------:|:-------:|:-------:|:-------:|:--------:|
@@ -84,17 +82,17 @@ Leave `--density` unset to have the tool calculate it automatically from the loa
 
 ---
 
-## Recommended settings for character models
+## Recommended settings
 
 ```bash
-# Good balance — 2048px source texture
+# Solid prop or weapon
+mc_voxelizer sword.glb --quality 4 --modid mymod --name sword
+
+# Character body (no fine facial detail)
 mc_voxelizer character.glb --quality 6 --modid mymod --name character
 
-# Maximum detail
+# Maximum geometric detail
 mc_voxelizer character.glb --quality 7 --modid mymod --name character
-
-# Solid interior fill (useful for chunky props, not characters)
-mc_voxelizer prop.glb --quality 4 --solid --modid mymod --name prop
 ```
 
 ---
@@ -103,51 +101,58 @@ mc_voxelizer prop.glb --quality 4 --solid --modid mymod --name prop
 
 ```
 output/
-  <name>.json    Minecraft item model
-  <name>.png     Texture atlas
+  <n>.json    Minecraft item model
+  <n>.png     Texture atlas
 ```
 
 Copy to your resource pack:
 ```
-assets/<modid>/models/item/<name>.json
-assets/<modid>/textures/item/<name>.png
+assets/<modid>/models/item/<n>.json
+assets/<modid>/textures/item/<n>.png
 ```
 
 Reference in your item definition (Fabric / 1.21+ data-driven items):
 ```json
-{ "model": { "type": "minecraft:model", "model": "<modid>:item/<name>" } }
+{ "model": { "type": "minecraft:model", "model": "<modid>:item/<n>" } }
 ```
 
 ### Output JSON format
 
 ```json
 {
-  "textures": { "0": "<modid>:item/<name>" },
-  "elements": [ ... ],
-  "display":  { ... }
+  "textures": { "0": "<modid>:item/<n>" },
+  "display":  { ... },
+  "elements": [ ... ]
 }
 ```
 
 - No `parent` field — the model is standalone
-- No `particle` texture — not needed for item models
-- `textures` appears at the top of the file
+- No `particle` texture
+- Keys are ordered: `textures` → `display` → `elements`, so display settings are easy to find without scrolling past thousands of element entries
+- Primitive arrays (coordinates, UVs) are written inline to keep file size small
+
+---
+
+## Limitations
+
+**Fine facial detail** (eyes, eyelashes, skin gradients) does not survive voxelization well. Even at quality 7 (128³), a face region is only ~20–30 voxels tall — not enough resolution to represent features that span just a few pixels of the source texture. If facial detail matters, use the voxelizer for the body/hair geometry and hand-paint the face area in Blockbench afterwards using the generated model as a base.
+
+**Thin geometry** (hair strands, fabric edges, accessories) may voxelize inconsistently depending on orientation relative to the grid. Inspect the result in Blockbench and clean up as needed.
 
 ---
 
 ## How it works
 
 1. **Load** — OBJ or glTF/GLB loaded with all materials and textures
-2. **Normalize** — mesh scaled uniformly to fit MC's `[0, 16]` coordinate space, optionally snapped to floor
-3. **Voxelize** — surface voxelization via SAT triangle–AABB overlap tests. Each voxel stores up to 6 triangle indices (one per face direction). A triangle only competes for face slots whose outward normal aligns with the triangle's normal (`dot > 0.1`). Within each slot, the closest triangle wins. This correctly resolves layered geometry: an eye-area voxel stores the face-skin triangle for its South slot and the hair triangle for its Up slot
-4. **Greedy mesh** — adjacent exposed voxel faces merged into maximal rectangles (geometry-only, colour-independent). Fewer elements = better MC performance
-5. **Bake** — for each pixel in the atlas, the owning voxel's stored triangle is looked up for the quad's face direction, barycentric coordinates are computed at the pixel's exact 3D position, and the original mesh texture is sampled at the interpolated UV. Falls back to any recorded triangle, then to the flat per-voxel colour
-6. **Write** — atlas PNG and model JSON written to output directory
-
----
+2. **Normalize** — mesh scaled uniformly to fit MC's `[0, 16]` coordinate space, snapped to floor
+3. **Voxelize** — surface voxelization via SAT triangle–AABB overlap tests. Each voxel stores one triangle index per face direction (6 slots). Within each slot the closest triangle wins by distance to its plane
+4. **Greedy mesh** — adjacent exposed voxel faces merged into maximal rectangles (geometry-only). Fewer elements = better MC performance
+5. **Bake** — for each atlas pixel, the owning voxel's stored triangle is looked up, barycentric coordinates computed at the pixel's exact 3D position, and the original mesh texture sampled at the interpolated UV
+6. **Write** — atlas PNG and compact model JSON written to output directory
 
 ## Texture atlas
 
-Atlas dimensions use independent power-of-2 per axis (non-square). The packer estimates a square-ish row width from `sqrt(totalPixels)` before allocating, keeping both axes similar in size. Non-square power-of-2 textures (e.g. `4096×2048`) are fully supported by Minecraft 1.13+.
+Atlas dimensions use independent power-of-2 per axis (non-square). The packer estimates a square-ish row width from `sqrt(totalPixels)` to keep both axes balanced. Non-square power-of-2 textures (e.g. `4096×2048`) are fully supported by Minecraft 1.13+.
 
 Approximate atlas sizes at common settings:
 
@@ -162,17 +167,14 @@ Approximate atlas sizes at common settings:
 
 ## Troubleshooting
 
-**Eyes / face details missing**
-Use quality 6 or 7. At quality 5 the face region may only be ~10 voxels tall — not enough to resolve fine features like anime eyes.
+**Black voxels**
+Check the loader output for texture warnings. For OBJ, ensure the `.mtl` file and textures are in the same directory. For glTF, embedded (`.glb`) always works; external textures must be alongside the `.gltf`.
 
 **PNG is very large or slow to generate**
-Reduce `--density`. The sweet spot is `texture_size / grid_resolution`; anything above that adds no detail and increases file size.
+Reduce `--density`. The sweet spot is `texture_size / grid_resolution` — anything above adds no detail.
 
-**Black voxels**
-Check the loader output for texture warnings. For OBJ, ensure the `.mtl` file and texture images are in the same directory as the `.obj`. For glTF, embedded textures (`.glb`) always work; external ones need to be alongside the `.gltf`.
+**Model renders purple/black in-game**
+The texture PNG is missing or in the wrong path. Verify `assets/<modid>/textures/item/<n>.png` exists in the pack.
 
-**Model loaded but renders purple/black in-game**
-The texture PNG is missing or in the wrong location. Verify `assets/<modid>/textures/item/<name>.png` exists in the pack.
-
-**Resource pack fails to load intermittently**
+**Resource pack fails to reload intermittently**
 MC caches compiled model data. Remove and re-add the resource pack, or delete `.minecraft/assets/` to force a fresh build.

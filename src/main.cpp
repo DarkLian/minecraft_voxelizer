@@ -126,7 +126,11 @@ static CliArgs interactivePrompt() {
         throw std::invalid_argument("No input file specified.");
 
     std::cout << "Enter voxel resolution quality (1-7) [Enter = 3]:\n"
-              << "  6 = 96^3 (good for faces)  7 = 128^3 (maximum)\n> ";
+              << "  1 =  16^3  fastest/blockiest\n"
+              << "  3 =  32^3  recommended default\n"
+              << "  5 =  64^3  good detail\n"
+              << "  6 =  96^3  face expressions visible\n"
+              << "  7 = 128^3  maximum detail (slow)\n> ";
     std::string q; std::getline(std::cin, q);
     if (!q.empty()) {
         args.quality = std::stoi(q);
@@ -134,9 +138,13 @@ static CliArgs interactivePrompt() {
             throw std::invalid_argument("Quality must be 1-7.");
     }
 
-    std::cout << "Enter texture density (pixels per voxel) [Enter = auto]:\n"
-              << "  Recommended: source_texture_size / grid_resolution\n"
-              << "  e.g. 1024px texture + quality 5 => 16\n> ";
+    std::cout << "Enter texture density in pixels per voxel (1-64) [Enter = auto]:\n"
+              << "  Auto = source_texture_size / grid_resolution (recommended)\n"
+              << "  Sweet spot examples:\n"
+              << "    512px texture  + quality 5 => 8\n"
+              << "    1024px texture + quality 5 => 16\n"
+              << "    2048px texture + quality 7 => 16\n"
+              << "  Going above auto adds no detail, only increases PNG size.\n> ";
     std::string d; std::getline(std::cin, d);
     if (!d.empty()) {
         args.density = std::stoi(d);
@@ -145,9 +153,10 @@ static CliArgs interactivePrompt() {
     }
     // 0 = auto, resolved after mesh load
 
-    std::cout << "Enable solid interior fill? (y/n) [Enter = n]:\n> ";
+    std::cout << "Enable solid interior fill? (y/n) [Enter = y]:\n> ";
     std::string s; std::getline(std::cin, s);
-    if (s == "y" || s == "Y") args.solidFill = true;
+    if (s == "n" || s == "N") args.solidFill = false;
+    else args.solidFill = true;
 
     std::cout << "Enter mod ID [Enter = 'darkaddons']:\n> ";
     std::string m; std::getline(std::cin, m);
@@ -253,7 +262,9 @@ int main(int argc, char **argv) {
         }
 
         // ── Step 6: Build texture atlas + Minecraft model ──────────────────
-        TextureAtlas atlas(4096);
+        // Row width = 0 → auto-selected from total pixel count hint.
+        // Size cap = 8192 prevents runaway atlas sizes at high density.
+        TextureAtlas atlas(0, 8192);
         McModel model(texPath);
         model.build(quads, grid, normalized, atlas, args.density);
         model.printStats();

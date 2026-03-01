@@ -182,44 +182,78 @@ McElement McModel::buildElement(const GreedyMesher::Quad  &quad,
     return el;
 }
 
+// ── Compact JSON serializer ───────────────────────────────────────────────────
+// Outputs objects/arrays-of-objects with newlines + indentation, but keeps
+// primitive arrays (numbers/strings only) on a single line.
+// e.g.  "from": [6.5, 0, 0]   instead of 5 lines.
+// This matches Blockbench's export style and cuts file size ~4×.
+
+static void writeCompact(std::ostream &out,
+                         const nlohmann::ordered_json &j,
+                         int indent = 0)
+{
+    const std::string tab(indent, '\t');
+    const std::string tab1(indent + 1, '\t');
+
+    if (j.is_object()) {
+        out << "{\n";
+        bool first = true;
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (!first) out << ",\n";
+            first = false;
+            out << tab1 << "\"" << it.key() << "\": ";
+            writeCompact(out, it.value(), indent + 1);
+        }
+        out << "\n" << tab << "}";
+
+    } else if (j.is_array()) {
+        // Check whether all elements are primitives (numbers / strings / bools).
+        bool allPrimitive = true;
+        for (const auto &elem : j)
+            if (elem.is_object() || elem.is_array()) { allPrimitive = false; break; }
+
+        if (allPrimitive) {
+            // Inline: [1.0, 2.0, 3.0]
+            out << "[";
+            bool first = true;
+            for (const auto &elem : j) {
+                if (!first) out << ", ";
+                first = false;
+                out << elem.dump();   // number / string / bool — no indent needed
+            }
+            out << "]";
+        } else {
+            // Array of objects — one per line
+            out << "[\n";
+            bool first = true;
+            for (const auto &elem : j) {
+                if (!first) out << ",\n";
+                first = false;
+                out << tab1;
+                writeCompact(out, elem, indent + 1);
+            }
+            out << "\n" << tab << "]";
+        }
+
+    } else {
+        out << j.dump();  // primitive: number, string, bool, null
+    }
+}
+
 // ── JSON serialization ────────────────────────────────────────────────────────
 
 void McModel::writeJson(const std::string &outputPath) const {
-    json root;
-    root["parent"]   = "minecraft:block/block";
-    root["textures"] = { {"0", texturePath_}, {"particle", texturePath_} };
+    // Use ordered_json so keys appear in insertion order (textures first,
+    // then elements, then display) rather than alphabetically sorted.
+    using ojson = nlohmann::ordered_json;
 
-    json elementsArr = json::array();
-    for (const auto &el : elements_) {
-        json elem;
-        elem["from"] = {el.from.x, el.from.y, el.from.z};
-        elem["to"]   = {el.to.x,   el.to.y,   el.to.z};
+    ojson root;
 
-        if (el.hasRotation) {
-            elem["rotation"] = {
-                {"angle",   el.rotation.angle},
-                {"axis",    std::string(1, el.rotation.axis)},
-                {"origin",  {el.rotation.origin.x,
-                             el.rotation.origin.y,
-                             el.rotation.origin.z}},
-                {"rescale", el.rotation.rescale}
-            };
-        }
+    // ── Textures block (top of file, no parent, no particle) ─────────────────
+    root["textures"] = ojson::object();
+    root["textures"]["0"] = texturePath_;
 
-        json facesObj;
-        for (const auto &[faceName, mcFace] : el.faces) {
-            json fj;
-            fj["uv"]      = {mcFace.uv[0], mcFace.uv[1],
-                             mcFace.uv[2], mcFace.uv[3]};
-            fj["texture"] = mcFace.texture;
-            if (mcFace.tintindex >= 0) fj["tintindex"] = mcFace.tintindex;
-            facesObj[faceName] = fj;
-        }
-        elem["faces"] = facesObj;
-        elementsArr.push_back(elem);
-    }
-    root["elements"] = elementsArr;
-
+    // ── Display (before elements for easy editing) ────────────────────────────
     root["display"] = {
         {"gui", {
             {"rotation", {McConstants::DISPLAY.guiRotX,
@@ -265,10 +299,43 @@ void McModel::writeJson(const std::string &outputPath) const {
         }}
     };
 
+    // ── Elements ──────────────────────────────────────────────────────────────
+    ojson elementsArr = ojson::array();
+    for (const auto &el : elements_) {
+        ojson elem;
+        elem["from"] = {el.from.x, el.from.y, el.from.z};
+        elem["to"]   = {el.to.x,   el.to.y,   el.to.z};
+
+        if (el.hasRotation) {
+            elem["rotation"] = {
+                {"angle",   el.rotation.angle},
+                {"axis",    std::string(1, el.rotation.axis)},
+                {"origin",  {el.rotation.origin.x,
+                             el.rotation.origin.y,
+                             el.rotation.origin.z}},
+                {"rescale", el.rotation.rescale}
+            };
+        }
+
+        ojson facesObj;
+        for (const auto &[faceName, mcFace] : el.faces) {
+            ojson fj;
+            fj["uv"]      = {mcFace.uv[0], mcFace.uv[1],
+                             mcFace.uv[2], mcFace.uv[3]};
+            fj["texture"] = mcFace.texture;
+            if (mcFace.tintindex >= 0) fj["tintindex"] = mcFace.tintindex;
+            facesObj[faceName] = fj;
+        }
+        elem["faces"] = facesObj;
+        elementsArr.push_back(elem);
+    }
+    root["elements"] = elementsArr;
+
     std::ofstream out(outputPath);
     if (!out)
         throw std::runtime_error("McModel: cannot open output file: " + outputPath);
-    out << root.dump(2);
+    writeCompact(out, root);
+    out << "\n";
     out.close();
 
     std::cout << "[McModel] Wrote " << elements_.size()

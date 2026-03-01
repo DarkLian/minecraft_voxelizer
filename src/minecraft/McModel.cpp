@@ -7,6 +7,9 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 using json = nlohmann::json;
 
@@ -152,8 +155,15 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     // Phase 2: finalise layout
     atlas.finalize();
 
-    // Phase 3: bake pixels + build elements
-    for (size_t i = 0; i < quads.size(); i++) {
+    // Phase 3: bake pixels + build elements.
+    // Pre-size elements_ so threads can write by index without data races.
+    // setPixel is safe because each quad occupies a unique atlas region.
+    elements_.resize(quads.size());
+
+    #ifdef _OPENMP
+    #pragma omp parallel for schedule(dynamic, 4)
+    #endif
+    for (int i = 0; i < static_cast<int>(quads.size()); i++) {
         const auto &q = quads[i];
         const auto &r = regions[i];
 
@@ -165,7 +175,7 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
         }
 
         TextureAtlas::UVRect uv = atlas.regionUV(r);
-        elements_.push_back(buildElement(q, uv));
+        elements_[i] = buildElement(q, uv);
     }
 }
 
@@ -267,17 +277,6 @@ static void writeCompactStr(std::string &out,
     } else {
         out += j.dump();
     }
-}
-
-// Legacy ostream wrapper (kept for any future callers)
-static void writeCompact(std::ostream &out,
-                         const nlohmann::ordered_json &j,
-                         int indent = 0)
-{
-    std::string buf;
-    buf.reserve(1024 * 1024);
-    writeCompactStr(buf, j, indent);
-    out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
 }
 
 // ── JSON serialization ────────────────────────────────────────────────────────

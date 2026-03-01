@@ -8,12 +8,14 @@ namespace McConstants {
     constexpr float MC_UNIT_MAX = 16.0f;
     constexpr float MC_UNIT_MIN = 0.0f;
 
-    // Element count thresholds
-    constexpr int ELEMENT_WARN_THRESHOLD  =  500; // Blockbench starts to lag
-    constexpr int ELEMENT_CRASH_THRESHOLD = 3000; // MC renderer risk zone
+    // Element count thresholds.
+    // MC does not have a known hard element limit for item models — models
+    // with 6000+ elements have been confirmed to load.  These thresholds
+    // are performance guidelines only.
+    constexpr int ELEMENT_WARN_THRESHOLD  =  512;  // noticeable load time
+    constexpr int ELEMENT_PERF_THRESHOLD  = 3000;  // may cause game lag
 
     constexpr std::array<float, 5> ALLOWED_ROTATIONS = {-45.0f,-22.5f,0.0f,22.5f,45.0f};
-
     constexpr float UV_MAX = 16.0f;
 
     inline const std::string &faceName(Face f) {

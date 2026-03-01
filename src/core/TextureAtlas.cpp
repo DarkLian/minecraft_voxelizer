@@ -19,8 +19,25 @@ int TextureAtlas::nextPow2(int v) {
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
-TextureAtlas::TextureAtlas(int maxRowWidth)
-    : maxRowWidth_(std::max(1, maxRowWidth)) {}
+TextureAtlas::TextureAtlas(int maxRowWidth, int maxAtlasSize)
+    : maxRowWidth_(maxRowWidth)
+    , maxAtlasSize_(std::max(1, maxAtlasSize))
+{
+    // 0 means auto — will be set in hintTotalPixels() or finalize()
+    if (maxRowWidth_ <= 0)
+        maxRowWidth_ = maxAtlasSize_; // fallback: full width, use hint to refine
+}
+
+void TextureAtlas::hintTotalPixels(int totalPixels) {
+    if (rowWidthLocked_ || finalized_) return;
+    // Choose row width ≈ sqrt(totalPixels), rounded to next pow2,
+    // clamped to [64, maxAtlasSize_].
+    if (totalPixels > 0) {
+        int sqrtPx = static_cast<int>(std::sqrt(static_cast<double>(totalPixels)));
+        maxRowWidth_ = std::clamp(nextPow2(sqrtPx), 64, maxAtlasSize_);
+    }
+    rowWidthLocked_ = true;
+}
 
 // ── Phase 1: Allocate ─────────────────────────────────────────────────────────
 
@@ -30,11 +47,11 @@ TextureAtlas::Region TextureAtlas::allocate(int w, int h) {
     if (w <= 0) w = 1;
     if (h <= 0) h = 1;
 
-    // If the new quad doesn't fit on the current row, start a new one.
+    // Wrap to a new row if this region doesn't fit.
     if (curX_ + w > maxRowWidth_ && curX_ > 0) {
-        curY_  += rowH_;
-        curX_   = 0;
-        rowH_   = 0;
+        curY_ += rowH_;
+        curX_  = 0;
+        rowH_  = 0;
     }
 
     Region r{ curX_, curY_, w, h };
@@ -42,7 +59,7 @@ TextureAtlas::Region TextureAtlas::allocate(int w, int h) {
     curX_    += w;
     rowH_     = std::max(rowH_, h);
     packedW_  = std::max(packedW_, curX_);
-    packedH_  = curY_ + rowH_;   // updated after every allocation
+    packedH_  = curY_ + rowH_;
 
     return r;
 }
@@ -55,23 +72,26 @@ void TextureAtlas::finalize() {
     if (packedW_ == 0 || packedH_ == 0) {
         atlasW_ = atlasH_ = 1;
     } else {
-        // Square atlas: take the larger of the two packed dimensions so both
-        // width and height are the same power-of-2.  This gives maximum
-        // compatibility with MC and GPU drivers that prefer square textures.
-        int side = nextPow2(std::max(packedW_, packedH_));
-        atlasW_  = side;
-        atlasH_  = side;
+        atlasW_ = nextPow2(packedW_);
+        atlasH_ = nextPow2(packedH_);
+
+        // Safety: if either axis exceeds the size cap, the content would be
+        // clipped which corrupts textures. Instead, report how bad it is and
+        // let the user reduce --density. Never silently clip.
+        if (atlasW_ > maxAtlasSize_ || atlasH_ > maxAtlasSize_) {
+            std::cerr << "[TextureAtlas] WARNING: atlas is " << atlasW_
+                      << " x " << atlasH_ << " px — content won't be clipped,\n"
+                      << "  but this will be slow to generate and large on disk.\n"
+                      << "  Reduce --density to shrink it. Recommended density for\n"
+                      << "  this quality: source_texture_size / grid_resolution.\n";
+        }
     }
 
     pixels_.assign(static_cast<size_t>(atlasW_) * atlasH_, glm::vec3(0.0f));
     finalized_ = true;
 
-    if (atlasW_ > 8192 || atlasH_ > 8192)
-        std::cerr << "[TextureAtlas] WARNING: atlas is " << atlasW_ << "×" << atlasH_
-                  << " px — consider using a lower --density value.\n";
-
-    std::cout << "[TextureAtlas] Layout finalised: " << atlasW_ << " × " << atlasH_
-              << " px (packed area " << packedW_ << " × " << packedH_ << " px)\n";
+    std::cout << "[TextureAtlas] Layout finalised: " << atlasW_ << " x " << atlasH_
+              << " px  (packed content: " << packedW_ << " x " << packedH_ << " px)\n";
 }
 
 // ── Phase 3: Set pixels ───────────────────────────────────────────────────────
@@ -91,10 +111,10 @@ TextureAtlas::UVRect TextureAtlas::regionUV(const Region &r) const {
 
     float fw = static_cast<float>(atlasW_);
     float fh = static_cast<float>(atlasH_);
-    float u1 = (static_cast<float>(r.x)        / fw) * 16.0f;
-    float v1 = (static_cast<float>(r.y)        / fh) * 16.0f;
-    float u2 = (static_cast<float>(r.x + r.w)  / fw) * 16.0f;
-    float v2 = (static_cast<float>(r.y + r.h)  / fh) * 16.0f;
+    float u1 = (static_cast<float>(r.x)       / fw) * 16.0f;
+    float v1 = (static_cast<float>(r.y)       / fh) * 16.0f;
+    float u2 = (static_cast<float>(r.x + r.w) / fw) * 16.0f;
+    float v2 = (static_cast<float>(r.y + r.h) / fh) * 16.0f;
     return {u1, v1, u2, v2};
 }
 
@@ -118,5 +138,8 @@ void TextureAtlas::writePng(const std::string &path) const {
     if (!result)
         throw std::runtime_error("TextureAtlas: failed to write PNG to " + path);
 
-    std::cout << "[TextureAtlas] Wrote atlas (" << w << "×" << h << " px) to: " << path << "\n";
+    long long bytes = static_cast<long long>(w) * h * 3;
+    std::cout << "[TextureAtlas] Wrote atlas (" << w << " x " << h
+              << " px, ~" << (bytes / 1024 / 1024) << " MB uncompressed) to: "
+              << path << "\n";
 }

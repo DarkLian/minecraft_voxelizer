@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <stdexcept>
+#include <climits>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -127,6 +128,17 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     density = std::max(1, density);
     elements_.clear();
     elements_.reserve(quads.size());
+
+    // Give the atlas a total-pixel hint so it can choose an optimal row width
+    // before any allocations happen.  This prevents the atlas becoming very
+    // wide/tall in one axis and wasting space in the other.
+    {
+        long long totalPx = 0;
+        for (const auto &q : quads)
+            totalPx += static_cast<long long>(std::max(1, q.uCount * density))
+                     * std::max(1, q.vCount * density);
+        atlas.hintTotalPixels(static_cast<int>(std::min(totalPx, (long long)INT_MAX)));
+    }
 
     // Phase 1: allocate atlas regions
     std::vector<TextureAtlas::Region> regions;
@@ -269,13 +281,11 @@ void McModel::printStats() const {
               << "          NOTE: This is NOT the voxel count. Elements are\n"
               << "          merged voxel faces — higher quality CAN produce\n"
               << "          fewer elements when large flat regions merge.\n";
-    if (count > McConstants::ELEMENT_CRASH_THRESHOLD)
-        std::cout << "[McModel] WARNING: " << count
-                  << " elements exceeds MC safe limit ("
-                  << McConstants::ELEMENT_CRASH_THRESHOLD << ").\n";
+    if (count > McConstants::ELEMENT_PERF_THRESHOLD)
+        std::cout << "[McModel] WARNING: " << count << " elements is very high"
+                  << " — may cause in-game lag. Consider reducing --quality or --density.\n";
     else if (count > McConstants::ELEMENT_WARN_THRESHOLD)
-        std::cout << "[McModel] Note: " << count
-                  << " elements may cause Blockbench to lag.\n";
+        std::cout << "[McModel] Note: " << count << " elements is high but should load fine.\n";
     else
         std::cout << "[McModel] Element count is within safe limits.\n";
 }

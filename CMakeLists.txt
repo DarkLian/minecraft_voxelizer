@@ -57,6 +57,13 @@ file(GLOB_RECURSE SOURCES
 # FPNG_NO_SSE disables SSE4.1 intrinsics — avoids MinGW "target specific
 # option mismatch" errors while still being significantly faster than stb.
 add_executable(mc_voxelizer ${SOURCES} ${fpng_SOURCE_DIR}/src/fpng.cpp app.rc)
+
+# Define your version
+set(APP_VERSION "v1.3.0")
+
+# Tell CMake to rename the output file
+set_target_properties(mc_voxelizer PROPERTIES OUTPUT_NAME "mc_voxelizer-${APP_VERSION}")
+
 target_compile_definitions(mc_voxelizer PRIVATE FPNG_NO_SSE=1)
 
 target_include_directories(mc_voxelizer PRIVATE

@@ -28,7 +28,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 class McModel {
 public:
-    explicit McModel(const std::string &texturePath);
+    explicit McModel(std::string texturePath);
 
     void build(const std::vector<GreedyMesher::Quad> &quads,
                const VoxelGrid &grid,
@@ -47,13 +47,13 @@ private:
     std::string texturePath_;
     std::vector<McElement> elements_;
 
-    [[nodiscard]] McElement buildElement(const GreedyMesher::Quad &quad,
-                                         const TextureAtlas::UVRect &uv) const;
+    [[nodiscard]] static McElement buildElement(const GreedyMesher::Quad &quad,
+                                                const TextureAtlas::UVRect &uv);
 
     // Sample one atlas pixel from the original mesh texture via UV interpolation.
-    [[nodiscard]] glm::vec3 samplePixel(const GreedyMesher::Quad &q,
-                                        int pu, int pv,
-                                        int density,
-                                        const VoxelGrid &grid,
-                                        const Mesh &mesh) const;
+    [[nodiscard]] static glm::vec3 samplePixel(const GreedyMesher::Quad &q,
+                                               int pu, int pv,
+                                               int density,
+                                               const VoxelGrid &grid,
+                                               const Mesh &mesh);
 };

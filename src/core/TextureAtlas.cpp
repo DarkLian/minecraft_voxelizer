@@ -133,22 +133,23 @@ void TextureAtlas::writePng(const std::string &path) const {
 
     // Float [0,1] → uint8 conversion. Each pixel is independent, safe to
     // parallelize with OpenMP. Falls back to single-threaded if not available.
+    const std::vector<glm::vec3> &localPixels = pixels_;
+
 #ifdef _OPENMP
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for default(none) shared(raw, localPixels, totalPx) schedule(static)
 #endif
     for (int i = 0; i < totalPx; i++) {
-        const glm::vec3 &c = pixels_[i];
-        raw[i * 3 + 0] = static_cast<uint8_t>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f + 0.5f);
-        raw[i * 3 + 1] = static_cast<uint8_t>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f + 0.5f);
-        raw[i * 3 + 2] = static_cast<uint8_t>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f + 0.5f);
+        const glm::vec3 &c = localPixels[i];
+        raw[i * 3 + 0] = static_cast<uint8_t>(std::round(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f));
+        raw[i * 3 + 1] = static_cast<uint8_t>(std::round(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f));
+        raw[i * 3 + 2] = static_cast<uint8_t>(std::round(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f));
     }
 
     // fpng is an SSE/AVX-optimized PNG encoder that skips deflate entirely.
     // For atlas textures loaded once at MC startup, file size doesn't matter —
     // speed does. fpng writes an 8K image in ~200ms vs stb's 13+ seconds.
     fpng::fpng_init();
-    bool ok = fpng::fpng_encode_image_to_file(path.c_str(), raw.data(), w, h, 3, 0);
-    if (!ok)
+    if (bool ok = fpng::fpng_encode_image_to_file(path.c_str(), raw.data(), w, h, 3, 0); !ok)
         throw std::runtime_error("TextureAtlas: fpng failed to write PNG to " + path);
 
     long long bytes = static_cast<long long>(w) * h * 3;

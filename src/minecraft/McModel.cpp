@@ -7,14 +7,14 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #ifdef _OPENMP
-#include <omp.h>
 #endif
 
 using json = nlohmann::json;
 
-McModel::McModel(const std::string &texturePath)
-    : texturePath_(texturePath) {
+McModel::McModel(std::string texturePath)
+    : texturePath_(std::move(texturePath)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,20 +22,20 @@ McModel::McModel(const std::string &texturePath)
 //
 // Given a pixel at offset (pu, pv) within a quad's atlas region, this method:
 //   1. Figures out which voxel owns this pixel.
-//   2. Computes the exact 3D MC-space position of this pixel's centre on the
+//   2. Computes the exact 3D MC-space position of this pixel's center on the
 //      exposed face of that voxel.
 //   3. Looks up the mesh triangle that was stored for this voxel.
 //   4. Re-interpolates the triangle's UV coordinates at that 3D point.
 //   5. Samples the original mesh texture at those UVs.
 //
-// This gives true sub-voxel colour detail — different pixels within the same
+// This gives true sub-voxel color detail — different pixels within the same
 // voxel face sample different texels from the source texture.
 // ─────────────────────────────────────────────────────────────────────────────
 glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
                                int pu, int pv,
                                int density,
                                const VoxelGrid &grid,
-                               const Mesh &srcMesh) const {
+                               const Mesh &srcMesh) {
     // ── Which voxel owns this pixel? ──────────────────────────────────────────
     int vu = q.uStart + pu / density; // voxel coordinate on uAxis
     int vv = q.vStart + pv / density; // voxel coordinate on vAxis
@@ -64,7 +64,7 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
                        srcMesh.materials[tri.materialIndex].hasTexture());
 
         if (hasTex) {
-            // ── Compute 3D MC position of this pixel's centre ─────────────────
+            // ── Compute 3D MC position of this pixel's center ─────────────────
             // Grid dimensions for each axis
             int dims[3] = {grid.resX, grid.resY, grid.resZ};
             float voxelSizeS = 16.0f / static_cast<float>(dims[q.sweepAxis]);
@@ -72,13 +72,13 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
             float voxelSizeV = 16.0f / static_cast<float>(dims[q.vAxis]);
 
             // Sub-pixel fractional position within the voxel face: [0,1)
-            // Centre the sample in each sub-pixel cell.
+            // Center the sample in each sub-pixel cell.
             float fu = (static_cast<float>(pu % density) + 0.5f) / static_cast<float>(density);
             float fv = (static_cast<float>(pv % density) + 0.5f) / static_cast<float>(density);
 
             glm::vec3 pixelPos(0.0f);
-            // Sweep axis: use the outer face of the voxel (exposed face centre)
-            pixelPos[q.sweepAxis] = (vs + 0.5f) * voxelSizeS; // voxel centre in sweep
+            // Sweep axis: use the outer face of the voxel (exposed face center)
+            pixelPos[q.sweepAxis] = (vs + 0.5f) * voxelSizeS; // voxel center in sweep
             // U and V axes: interpolate within the voxel face
             pixelPos[q.uAxis] = (vu + fu) * voxelSizeU;
             pixelPos[q.vAxis] = (vv + fv) * voxelSizeV;
@@ -141,7 +141,7 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
         for (const auto &q: quads)
             totalPx += static_cast<long long>(std::max(1, q.uCount * density))
                     * std::max(1, q.vCount * density);
-        atlas.hintTotalPixels(static_cast<int>(std::min(totalPx, (long long) INT_MAX)));
+        atlas.hintTotalPixels(static_cast<int>(std::min(totalPx, static_cast<long long>(INT_MAX))));
     }
 
     // Phase 1: allocate atlas regions
@@ -181,7 +181,7 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
 }
 
 McElement McModel::buildElement(const GreedyMesher::Quad &quad,
-                                const TextureAtlas::UVRect &uv) const {
+                                const TextureAtlas::UVRect &uv) {
     McElement el;
     el.from = quad.from;
     el.to = quad.to;

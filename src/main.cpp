@@ -11,10 +11,28 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+// ── Timer helper ──────────────────────────────────────────────────────────────
+using Clock = std::chrono::steady_clock;
+using TP    = std::chrono::time_point<Clock>;
+
+static TP now() { return Clock::now(); }
+
+static std::string elapsed(TP start, TP end) {
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    if (ms < 1000)
+        return std::to_string(ms) + " ms";
+    // Show seconds with one decimal for longer stages
+    double s = ms / 1000.0;
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.1f s", s);
+    return buf;
+}
 
 struct CliArgs {
     std::string inputPath;
@@ -203,9 +221,12 @@ int main(int argc, char **argv) {
     std::string texPath = args.modId + ":item/" + args.modelName;
 
     try {
+        TP t0 = now();
+
         // ── Step 1: Load mesh ──────────────────────────────────────────────
         auto loader = MeshLoader::create(args.inputPath);
         Mesh mesh   = loader->load(args.inputPath);
+        TP t1 = now();
 
         // ── Step 2: Resolve density (auto if not set) ──────────────────────
         int gridRes = Voxelizer::qualityToResolution(args.quality);
@@ -236,10 +257,12 @@ int main(int argc, char **argv) {
                   << "Texture:  " << texPath << "\n\n";
 
         // ── Step 3: Normalize to MC space ──────────────────────────────────
+        TP t2 = now();
         Normalizer::Config normCfg;
         normCfg.snapFloor = true;
         Normalizer normalizer(normCfg);
         Mesh normalized = normalizer.normalize(mesh);
+        TP t3 = now();
 
         // ── Step 4: Voxelize ───────────────────────────────────────────────
         Voxelizer::Config voxCfg;
@@ -248,12 +271,14 @@ int main(int argc, char **argv) {
         voxCfg.verbose   = true;
         Voxelizer voxelizer(voxCfg);
         VoxelGrid grid = voxelizer.voxelize(normalized);
+        TP t4 = now();
 
         // ── Step 5: Greedy mesh ────────────────────────────────────────────
         GreedyMesher::Config meshCfg;
         meshCfg.verbose = true;
         GreedyMesher mesher(meshCfg);
         auto quads = mesher.mesh(grid);
+        TP t5 = now();
 
         if (quads.empty()) {
             std::cerr << "Error: no quads generated.\n";
@@ -262,16 +287,18 @@ int main(int argc, char **argv) {
         }
 
         // ── Step 6: Build texture atlas + Minecraft model ──────────────────
-        // Row width = 0 → auto-selected from total pixel count hint.
-        // Size cap = 8192 prevents runaway atlas sizes at high density.
         TextureAtlas atlas(0, 8192);
         McModel model(texPath);
         model.build(quads, grid, normalized, atlas, args.density);
+        TP t6 = now();
         model.printStats();
 
         // ── Step 7: Write outputs ──────────────────────────────────────────
         atlas.writePng(pngOut);
+        TP t7 = now();
+
         model.writeJson(jsonOut);
+        TP t8 = now();
 
         std::cout << "\nDone!\n"
                   << "  JSON: " << jsonOut << "\n"
@@ -281,6 +308,18 @@ int main(int argc, char **argv) {
                   << "       assets/" << args.modId << "/models/item/\n"
                   << "  2. Copy " << args.modelName << ".png to:\n"
                   << "       assets/" << args.modId << "/textures/item/\n";
+
+        // ── Timing summary ─────────────────────────────────────────────────
+        std::cout << "\n[Timing]\n"
+                  << "  Load:        " << elapsed(t0, t1) << "\n"
+                  << "  Normalize:   " << elapsed(t2, t3) << "\n"
+                  << "  Voxelize:    " << elapsed(t3, t4) << "\n"
+                  << "  Greedy mesh: " << elapsed(t4, t5) << "\n"
+                  << "  Bake atlas:  " << elapsed(t5, t6) << "\n"
+                  << "  Write PNG:   " << elapsed(t6, t7) << "\n"
+                  << "  Write JSON:  " << elapsed(t7, t8) << "\n"
+                  << "  ──────────────────────\n"
+                  << "  Total:       " << elapsed(t0, t8) << "\n";
 
         pauseConsole();
     } catch (const std::exception &e) {

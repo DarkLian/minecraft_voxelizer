@@ -183,61 +183,101 @@ McElement McModel::buildElement(const GreedyMesher::Quad  &quad,
 }
 
 // ── Compact JSON serializer ───────────────────────────────────────────────────
-// Outputs objects/arrays-of-objects with newlines + indentation, but keeps
-// primitive arrays (numbers/strings only) on a single line.
-// e.g.  "from": [6.5, 0, 0]   instead of 5 lines.
-// This matches Blockbench's export style and cuts file size ~4×.
+// Writes objects/arrays-of-objects with indentation, primitive arrays inline.
+// Uses snprintf for numbers to avoid per-number std::string heap allocations
+// (nlohmann's dump() allocates a new string for every scalar, which is very
+// slow when serializing 15k+ elements each with dozens of float values).
 
-static void writeCompact(std::ostream &out,
-                         const nlohmann::ordered_json &j,
-                         int indent = 0)
+static void appendFloat(std::string &out, double v) {
+    char buf[32];
+    // Strip trailing zeros: "1.0" not "1.000000", but keep at least one decimal
+    // if the value is not a whole number.
+    int n = std::snprintf(buf, sizeof(buf), "%.10g", v);
+    // snprintf with %g already strips trailing zeros
+    out.append(buf, n);
+}
+
+static void writeCompactStr(std::string &out,
+                            const nlohmann::ordered_json &j,
+                            int indent = 0)
 {
-    const std::string tab(indent, '\t');
-    const std::string tab1(indent + 1, '\t');
-
     if (j.is_object()) {
-        out << "{\n";
+        out += "{\n";
+        const std::string tab1(indent + 1, '\t');
         bool first = true;
         for (auto it = j.begin(); it != j.end(); ++it) {
-            if (!first) out << ",\n";
+            if (!first) out += ",\n";
             first = false;
-            out << tab1 << "\"" << it.key() << "\": ";
-            writeCompact(out, it.value(), indent + 1);
+            out += tab1;
+            out += '"';
+            out += it.key();
+            out += "\": ";
+            writeCompactStr(out, it.value(), indent + 1);
         }
-        out << "\n" << tab << "}";
+        out += '\n';
+        out.append(indent, '\t');
+        out += '}';
 
     } else if (j.is_array()) {
-        // Check whether all elements are primitives (numbers / strings / bools).
         bool allPrimitive = true;
         for (const auto &elem : j)
             if (elem.is_object() || elem.is_array()) { allPrimitive = false; break; }
 
         if (allPrimitive) {
-            // Inline: [1.0, 2.0, 3.0]
-            out << "[";
+            out += '[';
             bool first = true;
             for (const auto &elem : j) {
-                if (!first) out << ", ";
+                if (!first) out += ", ";
                 first = false;
-                out << elem.dump();   // number / string / bool — no indent needed
+                if (elem.is_number_float())
+                    appendFloat(out, elem.get<double>());
+                else if (elem.is_number_integer())
+                    out += std::to_string(elem.get<int64_t>());
+                else if (elem.is_string())
+                    { out += '"'; out += elem.get<std::string>(); out += '"'; }
+                else if (elem.is_boolean())
+                    out += elem.get<bool>() ? "true" : "false";
+                else
+                    out += elem.dump();
             }
-            out << "]";
+            out += ']';
         } else {
-            // Array of objects — one per line
-            out << "[\n";
+            out += "[\n";
+            const std::string tab1(indent + 1, '\t');
             bool first = true;
             for (const auto &elem : j) {
-                if (!first) out << ",\n";
+                if (!first) out += ",\n";
                 first = false;
-                out << tab1;
-                writeCompact(out, elem, indent + 1);
+                out += tab1;
+                writeCompactStr(out, elem, indent + 1);
             }
-            out << "\n" << tab << "]";
+            out += '\n';
+            out.append(indent, '\t');
+            out += ']';
         }
 
+    } else if (j.is_number_float()) {
+        appendFloat(out, j.get<double>());
+    } else if (j.is_number_integer()) {
+        out += std::to_string(j.get<int64_t>());
+    } else if (j.is_string()) {
+        out += '"'; out += j.get<std::string>(); out += '"';
+    } else if (j.is_boolean()) {
+        out += j.get<bool>() ? "true" : "false";
     } else {
-        out << j.dump();  // primitive: number, string, bool, null
+        out += j.dump();
     }
+}
+
+// Legacy ostream wrapper (kept for any future callers)
+static void writeCompact(std::ostream &out,
+                         const nlohmann::ordered_json &j,
+                         int indent = 0)
+{
+    std::string buf;
+    buf.reserve(1024 * 1024);
+    writeCompactStr(buf, j, indent);
+    out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
 }
 
 // ── JSON serialization ────────────────────────────────────────────────────────
@@ -334,8 +374,13 @@ void McModel::writeJson(const std::string &outputPath) const {
     std::ofstream out(outputPath);
     if (!out)
         throw std::runtime_error("McModel: cannot open output file: " + outputPath);
-    writeCompact(out, root);
-    out << "\n";
+
+    // Pre-reserve ~100 bytes per element to avoid repeated reallocations.
+    std::string buf;
+    buf.reserve(elements_.size() * 100 + 4096);
+    writeCompactStr(buf, root);
+    buf += '\n';
+    out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
     out.close();
 
     std::cout << "[McModel] Wrote " << elements_.size()

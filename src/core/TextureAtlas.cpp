@@ -125,14 +125,23 @@ void TextureAtlas::writePng(const std::string &path) const {
         throw std::logic_error("TextureAtlas: writePng() called before finalize().");
 
     int w = atlasW_, h = atlasH_;
-    std::vector<uint8_t> raw(static_cast<size_t>(w) * h * 3);
+    int totalPx = w * h;
+    std::vector<uint8_t> raw(static_cast<size_t>(totalPx) * 3);
 
-    for (int i = 0; i < w * h; i++) {
-        const glm::vec3 &c = pixels_[i];
-        raw[i * 3 + 0] = static_cast<uint8_t>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
-        raw[i * 3 + 1] = static_cast<uint8_t>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
-        raw[i * 3 + 2] = static_cast<uint8_t>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
+    // Convert float [0,1] → uint8 in one tight loop.
+    // Multiply by 255 + 0.5 to round rather than truncate.
+    const glm::vec3 *src = pixels_.data();
+    uint8_t         *dst = raw.data();
+    for (int i = 0; i < totalPx; i++, src++, dst += 3) {
+        dst[0] = static_cast<uint8_t>(glm::clamp(src->r, 0.0f, 1.0f) * 255.0f + 0.5f);
+        dst[1] = static_cast<uint8_t>(glm::clamp(src->g, 0.0f, 1.0f) * 255.0f + 0.5f);
+        dst[2] = static_cast<uint8_t>(glm::clamp(src->b, 0.0f, 1.0f) * 255.0f + 0.5f);
     }
+
+    // Level 0 = no compression (just store). For atlas textures this is fine —
+    // MC loads the PNG once at startup, disk size difference is irrelevant.
+    // Gives maximum write speed (~10x faster than default level 8).
+    stbi_write_png_compression_level = 0;
 
     int result = stbi_write_png(path.c_str(), w, h, 3, raw.data(), w * 3);
     if (!result)

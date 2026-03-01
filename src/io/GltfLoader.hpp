@@ -5,7 +5,7 @@
 // Forward declare to avoid pulling all of tinygltf into every TU that
 // includes this header. The full include is in GltfLoader.cpp only.
 namespace tinygltf {
-    class Material;
+    struct Material;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -16,5 +16,5 @@ public:
     Mesh load(const std::string &path) override;
 
 private:
-    glm::vec3 extractBaseColor(const tinygltf::Material &mat) const;
+    [[nodiscard]] static glm::vec3 extractBaseColor(const tinygltf::Material &mat);
 };

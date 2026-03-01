@@ -24,7 +24,7 @@ public:
 
     // Returns a new Mesh with all vertex positions transformed to MC space.
     // Does not modify normals (they stay as-is after uniform scale).
-    Mesh normalize(const Mesh &input) const;
+    [[nodiscard]] Mesh normalize(const Mesh &input) const;
 
 private:
     Config cfg_;

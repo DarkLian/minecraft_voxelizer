@@ -22,7 +22,7 @@ Mesh GltfLoader::load(const std::string &path) {
         ok = loader.LoadASCIIFromFile(&gltfModel, &err, &warn, path);
 
     if (!warn.empty()) std::cerr << "[GltfLoader] Warning: " << warn << "\n";
-    if (!ok)           throw std::runtime_error("GltfLoader: " + err);
+    if (!ok) throw std::runtime_error("GltfLoader: " + err);
 
     Mesh mesh;
 
@@ -30,16 +30,16 @@ Mesh GltfLoader::load(const std::string &path) {
     // Index 0 = default grey fallback
     {
         Mesh::Material def;
-        def.name      = "default";
+        def.name = "default";
         def.baseColor = glm::vec3(0.8f);
         mesh.materials.push_back(def);
     }
 
-    for (const auto &gltfMat : gltfModel.materials) {
+    for (const auto &gltfMat: gltfModel.materials) {
         Mesh::Material mat;
-        mat.name      = gltfMat.name;
+        mat.name = gltfMat.name;
         mat.baseColor = extractBaseColor(gltfMat);
-        mat.flipV     = false; // glTF 2.0: V=0 at top — no flip needed
+        mat.flipV = false; // glTF 2.0: V=0 at top — no flip needed
 
         // ── Extract base-colour texture ────────────────────────────────────
         int texIdx = gltfMat.pbrMetallicRoughness.baseColorTexture.index;
@@ -52,12 +52,12 @@ Mesh GltfLoader::load(const std::string &path) {
                 // into img.image (vector<uint8_t>), img.width, img.height,
                 // img.component.
                 if (!img.image.empty() && img.width > 0 && img.height > 0) {
-                    int ch = img.component;  // 1, 2, 3, or 4
+                    int ch = img.component; // 1, 2, 3, or 4
 
                     if (ch >= 3) {
                         // Copy and drop alpha if present (keep only RGB)
-                        mat.imageW        = img.width;
-                        mat.imageH        = img.height;
+                        mat.imageW = img.width;
+                        mat.imageH = img.height;
                         mat.imageChannels = 3;
                         mat.imageData.reserve(static_cast<size_t>(img.width) * img.height * 3);
 
@@ -68,13 +68,13 @@ Mesh GltfLoader::load(const std::string &path) {
                         }
 
                         std::cout << "[GltfLoader]   Loaded texture for '"
-                                  << mat.name << "' ("
-                                  << img.width << "×" << img.height
-                                  << ", " << ch << " ch)\n";
+                                << mat.name << "' ("
+                                << img.width << "×" << img.height
+                                << ", " << ch << " ch)\n";
                     } else {
                         // Greyscale — expand to RGB
-                        mat.imageW        = img.width;
-                        mat.imageH        = img.height;
+                        mat.imageW = img.width;
+                        mat.imageH = img.height;
                         mat.imageChannels = 3;
                         mat.imageData.reserve(static_cast<size_t>(img.width) * img.height * 3);
 
@@ -87,7 +87,7 @@ Mesh GltfLoader::load(const std::string &path) {
                     }
                 } else {
                     std::cerr << "[GltfLoader]   WARNING: texture for '"
-                              << mat.name << "' could not be decoded.\n";
+                            << mat.name << "' could not be decoded.\n";
                 }
             }
         }
@@ -96,11 +96,11 @@ Mesh GltfLoader::load(const std::string &path) {
     }
 
     // ── Geometry ──────────────────────────────────────────────────────────────
-    for (const auto &node : gltfModel.nodes) {
+    for (const auto &node: gltfModel.nodes) {
         if (node.mesh < 0) continue;
         const auto &gltfMesh = gltfModel.meshes[node.mesh];
 
-        for (const auto &prim : gltfMesh.primitives) {
+        for (const auto &prim: gltfMesh.primitives) {
             if (prim.mode != TINYGLTF_MODE_TRIANGLES) continue;
 
             auto getAccessor = [&](int id) -> const tinygltf::Accessor * {
@@ -108,28 +108,28 @@ Mesh GltfLoader::load(const std::string &path) {
             };
             auto getBuffer = [&](const tinygltf::Accessor *acc) -> const uint8_t * {
                 if (!acc) return nullptr;
-                const auto &bv  = gltfModel.bufferViews[acc->bufferView];
+                const auto &bv = gltfModel.bufferViews[acc->bufferView];
                 const auto &buf = gltfModel.buffers[bv.buffer];
                 return buf.data.data() + bv.byteOffset + acc->byteOffset;
             };
 
-            auto posAcc  = getAccessor(prim.attributes.count("POSITION")    ? prim.attributes.at("POSITION")    : -1);
-            auto uvAcc   = getAccessor(prim.attributes.count("TEXCOORD_0")  ? prim.attributes.at("TEXCOORD_0")  : -1);
-            auto normAcc = getAccessor(prim.attributes.count("NORMAL")      ? prim.attributes.at("NORMAL")      : -1);
+            auto posAcc = getAccessor(prim.attributes.contains("POSITION") ? prim.attributes.at("POSITION") : -1);
+            auto uvAcc = getAccessor(prim.attributes.contains("TEXCOORD_0") ? prim.attributes.at("TEXCOORD_0") : -1);
+            auto normAcc = getAccessor(prim.attributes.contains("NORMAL") ? prim.attributes.at("NORMAL") : -1);
 
             if (!posAcc) continue;
 
-            const float *positions = reinterpret_cast<const float *>(getBuffer(posAcc));
-            const float *uvs       = uvAcc   ? reinterpret_cast<const float *>(getBuffer(uvAcc))   : nullptr;
-            const float *normals   = normAcc ? reinterpret_cast<const float *>(getBuffer(normAcc)) : nullptr;
+            auto positions = reinterpret_cast<const float *>(getBuffer(posAcc));
+            const float *uvs = uvAcc ? reinterpret_cast<const float *>(getBuffer(uvAcc)) : nullptr;
+            const float *normals = normAcc ? reinterpret_cast<const float *>(getBuffer(normAcc)) : nullptr;
 
             int baseVertex = static_cast<int>(mesh.vertices.size());
 
             for (size_t i = 0; i < posAcc->count; i++) {
-                Mesh::Vertex v;
-                v.position = glm::vec3(positions[i*3], positions[i*3+1], positions[i*3+2]);
-                if (uvs)     v.uv     = glm::vec2(uvs[i*2],     uvs[i*2+1]);
-                if (normals) v.normal = glm::vec3(normals[i*3], normals[i*3+1], normals[i*3+2]);
+                Mesh::Vertex v{};
+                v.position = glm::vec3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+                if (uvs) v.uv = glm::vec2(uvs[i * 2], uvs[i * 2 + 1]);
+                if (normals) v.normal = glm::vec3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]);
                 mesh.vertices.push_back(v);
             }
 
@@ -152,11 +152,13 @@ Mesh GltfLoader::load(const std::string &path) {
                 };
 
                 for (size_t i = 0; i + 2 < idxAcc.count; i += 3) {
-                    Mesh::Triangle tri;
-                    tri.vertexIndices  = { baseVertex + getIndex(i),
-                                           baseVertex + getIndex(i+1),
-                                           baseVertex + getIndex(i+2) };
-                    tri.materialIndex  = matIndex;
+                    Mesh::Triangle tri{};
+                    tri.vertexIndices = {
+                        baseVertex + getIndex(i),
+                        baseVertex + getIndex(i + 1),
+                        baseVertex + getIndex(i + 2)
+                    };
+                    tri.materialIndex = matIndex;
                     mesh.triangles.push_back(tri);
                 }
             }
@@ -164,7 +166,7 @@ Mesh GltfLoader::load(const std::string &path) {
     }
 
     std::cout << "[GltfLoader] Loaded " << mesh.vertices.size() << " vertices, "
-              << mesh.triangles.size() << " triangles.\n";
+            << mesh.triangles.size() << " triangles.\n";
 
     if (mesh.isEmpty())
         throw std::runtime_error("GltfLoader: file produced an empty mesh: " + path);
@@ -172,11 +174,12 @@ Mesh GltfLoader::load(const std::string &path) {
     return mesh;
 }
 
-glm::vec3 GltfLoader::extractBaseColor(const tinygltf::Material &mat) const {
-    const auto &cf = mat.pbrMetallicRoughness.baseColorFactor;
-    if (cf.size() >= 3)
-        return glm::vec3(static_cast<float>(cf[0]),
-                         static_cast<float>(cf[1]),
-                         static_cast<float>(cf[2]));
+glm::vec3 GltfLoader::extractBaseColor(const tinygltf::Material &mat) {
+    if (const auto &cf = mat.pbrMetallicRoughness.baseColorFactor; cf.size() >= 3)
+        return {
+            static_cast<float>(cf[0]),
+            static_cast<float>(cf[1]),
+            static_cast<float>(cf[2])
+        };
     return glm::vec3(0.8f);
 }

@@ -30,7 +30,9 @@ class TextureAtlas {
 public:
     using UVRect = std::array<float, 4>; // [u1, v1, u2, v2] in MC [0,16] space
 
-    struct Region { int x, y, w, h; };
+    struct Region {
+        int x, y, w, h;
+    };
 
     // maxRowWidth  — pixel width before wrapping to a new row.
     //               Pass 0 to auto-select (square-root of estimated total area).
@@ -47,13 +49,14 @@ public:
     void setPixel(int x, int y, const glm::vec3 &color);
 
     // ── Phase 4 ───────────────────────────────────────────────────────────────
-    UVRect regionUV(const Region &r) const;
-    void   writePng(const std::string &path) const;
+    [[nodiscard]] UVRect regionUV(const Region &r) const;
+
+    void writePng(const std::string &path) const;
 
     // ── Queries ───────────────────────────────────────────────────────────────
-    int  atlasWidth()   const { return atlasW_; }
-    int  atlasHeight()  const { return atlasH_; }
-    bool isFinalized()  const { return finalized_; }
+    [[nodiscard]] int atlasWidth() const { return atlasW_; }
+    [[nodiscard]] int atlasHeight() const { return atlasH_; }
+    [[nodiscard]] bool isFinalized() const { return finalized_; }
 
     // Call before finalize() to let the atlas choose optimal row width.
     // totalPixels = sum of (w*h) across all allocate() calls.
@@ -67,9 +70,9 @@ private:
     bool rowWidthLocked_ = false;
 
     // Packing state (Phase 1)
-    int curX_    = 0;
-    int curY_    = 0;
-    int rowH_    = 0;
+    int curX_ = 0;
+    int curY_ = 0;
+    int rowH_ = 0;
     int packedW_ = 0;
     int packedH_ = 0;
 

@@ -1,4 +1,0 @@
-1. change main to only use interactive command and change README.md
-2. change the pipeline to perform greedy meshing regardless of the color, and apply textures of higher pixel density  
-before: greedy meshing deal with the voxels with similar color
-after: greedy meshing should deal with the voxels regardless of the color, the texture just apply after

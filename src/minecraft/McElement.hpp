@@ -1,6 +1,5 @@
 #pragma once
 
-#include "core/VoxelGrid.hpp"  // Face enum
 #include <glm/glm.hpp>
 #include <array>
 #include <unordered_map>

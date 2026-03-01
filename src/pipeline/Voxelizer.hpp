@@ -19,9 +19,10 @@
 class Voxelizer {
 public:
     struct Config {
-        int  quality   = 3;
+        int quality = 3;
         bool solidFill = false;
-        bool verbose   = true;
+        bool verbose = true;
+
         Config() = default;
     };
 
@@ -29,21 +30,21 @@ public:
 
     explicit Voxelizer(Config cfg);
 
-    VoxelGrid voxelize(const Mesh &mesh) const;
+    [[nodiscard]] VoxelGrid voxelize(const Mesh &mesh) const;
 
 private:
     Config cfg_;
 
-    bool triangleOverlapsVoxel(
+    [[nodiscard]] static bool triangleOverlapsVoxel(
         const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2,
         const glm::vec3 &voxelCenter,
-        const glm::vec3 &halfSize) const;
+        const glm::vec3 &halfSize);
 
-    glm::vec3 barycentricCoords(
+    [[nodiscard]] static glm::vec3 barycentricCoords(
         const glm::vec3 &p,
         const glm::vec3 &a,
         const glm::vec3 &b,
-        const glm::vec3 &c) const;
+        const glm::vec3 &c);
 
     int floodFillSolid(VoxelGrid &grid) const;
 };

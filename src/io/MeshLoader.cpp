@@ -8,7 +8,7 @@ std::string MeshLoader::getExtension(const std::string &path) {
     auto pos = path.rfind('.');
     if (pos == std::string::npos) return "";
     std::string ext = path.substr(pos + 1);
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    std::ranges::transform(ext, ext.begin(), ::tolower);
     return ext;
 }
 

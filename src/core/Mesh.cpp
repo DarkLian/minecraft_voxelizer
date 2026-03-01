@@ -1,14 +1,13 @@
 #include "core/Mesh.hpp"
 #include <limits>
-#include <stdexcept>
 #include <cmath>
 #include <algorithm>
 
 Mesh::AABB Mesh::computeBounds() const {
-    AABB bounds;
-    bounds.min = glm::vec3( std::numeric_limits<float>::max());
+    AABB bounds{};
+    bounds.min = glm::vec3(std::numeric_limits<float>::max());
     bounds.max = glm::vec3(-std::numeric_limits<float>::max());
-    for (const auto &v : vertices) {
+    for (const auto &v: vertices) {
         bounds.min = glm::min(bounds.min, v.position);
         bounds.max = glm::max(bounds.max, v.position);
     }
@@ -33,7 +32,7 @@ glm::vec3 Mesh::sampleColor(const Triangle &tri, const glm::vec2 &bary) const {
 
     const Material &mat = materials[tri.materialIndex];
 
-    // If no texture is loaded fall back to the flat material colour.
+    // If no texture is loaded fall back to the flat material color.
     if (!mat.hasTexture())
         return mat.baseColor;
 
@@ -59,8 +58,8 @@ glm::vec3 Mesh::sampleColor(const Triangle &tri, const glm::vec2 &bary) const {
     if (mat.flipV) v = 1.0f - v;
 
     // ── Bilinear sample ───────────────────────────────────────────────────────
-    int W  = mat.imageW;
-    int H  = mat.imageH;
+    int W = mat.imageW;
+    int H = mat.imageH;
     int ch = mat.imageChannels;
 
     // Sub-pixel position in texel space
@@ -82,11 +81,11 @@ glm::vec3 Mesh::sampleColor(const Triangle &tri, const glm::vec2 &bary) const {
     // Pixel fetch helper: returns RGB in [0,1]
     auto fetchPixel = [&](int px, int py) -> glm::vec3 {
         int idx = (py * W + px) * ch;
-        return glm::vec3(
+        return {
             mat.imageData[idx + 0] / 255.0f,
             mat.imageData[idx + 1] / 255.0f,
             mat.imageData[idx + 2] / 255.0f
-        );
+        };
     };
 
     // 2×2 bilinear blend
@@ -95,7 +94,7 @@ glm::vec3 Mesh::sampleColor(const Triangle &tri, const glm::vec2 &bary) const {
     glm::vec3 c01 = fetchPixel(x0, y1);
     glm::vec3 c11 = fetchPixel(x1, y1);
 
-    glm::vec3 top    = glm::mix(c00, c10, tx);
+    glm::vec3 top = glm::mix(c00, c10, tx);
     glm::vec3 bottom = glm::mix(c01, c11, tx);
     return glm::mix(top, bottom, ty);
 }

@@ -14,7 +14,8 @@
 using json = nlohmann::json;
 
 McModel::McModel(const std::string &texturePath)
-    : texturePath_(texturePath) {}
+    : texturePath_(texturePath) {
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // samplePixel — the core of the texture baking system.
@@ -31,19 +32,19 @@ McModel::McModel(const std::string &texturePath)
 // voxel face sample different texels from the source texture.
 // ─────────────────────────────────────────────────────────────────────────────
 glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
-                                int pu, int pv,
-                                int density,
-                                const VoxelGrid &grid,
-                                const Mesh      &srcMesh) const {
+                               int pu, int pv,
+                               int density,
+                               const VoxelGrid &grid,
+                               const Mesh &srcMesh) const {
     // ── Which voxel owns this pixel? ──────────────────────────────────────────
-    int vu = q.uStart + pu / density;   // voxel coordinate on uAxis
-    int vv = q.vStart + pv / density;   // voxel coordinate on vAxis
-    int vs = q.sweepLayer;              // voxel coordinate on sweepAxis
+    int vu = q.uStart + pu / density; // voxel coordinate on uAxis
+    int vv = q.vStart + pv / density; // voxel coordinate on vAxis
+    int vs = q.sweepLayer; // voxel coordinate on sweepAxis
 
     glm::ivec3 voxel;
     voxel[q.sweepAxis] = vs;
-    voxel[q.uAxis]     = vu;
-    voxel[q.vAxis]     = vv;
+    voxel[q.uAxis] = vu;
+    voxel[q.vAxis] = vv;
 
     // ── Try to bake from the stored triangle ──────────────────────────────────
     // Look up the triangle recorded for THIS specific face direction.
@@ -65,7 +66,7 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
         if (hasTex) {
             // ── Compute 3D MC position of this pixel's centre ─────────────────
             // Grid dimensions for each axis
-            int dims[3] = { grid.resX, grid.resY, grid.resZ };
+            int dims[3] = {grid.resX, grid.resY, grid.resZ};
             float voxelSizeS = 16.0f / static_cast<float>(dims[q.sweepAxis]);
             float voxelSizeU = 16.0f / static_cast<float>(dims[q.uAxis]);
             float voxelSizeV = 16.0f / static_cast<float>(dims[q.vAxis]);
@@ -77,10 +78,10 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
 
             glm::vec3 pixelPos(0.0f);
             // Sweep axis: use the outer face of the voxel (exposed face centre)
-            pixelPos[q.sweepAxis] = (vs + 0.5f) * voxelSizeS;  // voxel centre in sweep
+            pixelPos[q.sweepAxis] = (vs + 0.5f) * voxelSizeS; // voxel centre in sweep
             // U and V axes: interpolate within the voxel face
-            pixelPos[q.uAxis]     = (vu + fu) * voxelSizeU;
-            pixelPos[q.vAxis]     = (vv + fv) * voxelSizeV;
+            pixelPos[q.uAxis] = (vu + fu) * voxelSizeU;
+            pixelPos[q.vAxis] = (vv + fv) * voxelSizeV;
 
             // ── Barycentric coords of pixelPos relative to the triangle ────────
             auto verts = srcMesh.getTriangleVertices(tri);
@@ -100,7 +101,7 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
             float d21 = glm::dot(v2, v1);
             float denom = d00 * d11 - d01 * d01;
 
-            glm::vec2 bary2(1.0f / 3.0f);  // fallback: centroid
+            glm::vec2 bary2(1.0f / 3.0f); // fallback: centroid
             if (std::abs(denom) > 1e-10f) {
                 float bv = (d11 * d20 - d01 * d21) / denom;
                 float bw = (d00 * d21 - d01 * d20) / denom;
@@ -124,10 +125,10 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
 // ── Build ─────────────────────────────────────────────────────────────────────
 
 void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
-                    const VoxelGrid                       &grid,
-                    const Mesh                            &srcMesh,
-                    TextureAtlas                          &atlas,
-                    int                                    density) {
+                    const VoxelGrid &grid,
+                    const Mesh &srcMesh,
+                    TextureAtlas &atlas,
+                    int density) {
     density = std::max(1, density);
     elements_.clear();
     elements_.reserve(quads.size());
@@ -137,16 +138,16 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     // wide/tall in one axis and wasting space in the other.
     {
         long long totalPx = 0;
-        for (const auto &q : quads)
+        for (const auto &q: quads)
             totalPx += static_cast<long long>(std::max(1, q.uCount * density))
-                     * std::max(1, q.vCount * density);
-        atlas.hintTotalPixels(static_cast<int>(std::min(totalPx, (long long)INT_MAX)));
+                    * std::max(1, q.vCount * density);
+        atlas.hintTotalPixels(static_cast<int>(std::min(totalPx, (long long) INT_MAX)));
     }
 
     // Phase 1: allocate atlas regions
     std::vector<TextureAtlas::Region> regions;
     regions.reserve(quads.size());
-    for (const auto &q : quads) {
+    for (const auto &q: quads) {
         int pw = std::max(1, q.uCount * density);
         int ph = std::max(1, q.vCount * density);
         regions.push_back(atlas.allocate(pw, ph));
@@ -160,9 +161,9 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     // setPixel is safe because each quad occupies a unique atlas region.
     elements_.resize(quads.size());
 
-    #ifdef _OPENMP
-    #pragma omp parallel for schedule(dynamic, 4)
-    #endif
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 4)
+#endif
     for (int i = 0; i < static_cast<int>(quads.size()); i++) {
         const auto &q = quads[i];
         const auto &r = regions[i];
@@ -179,14 +180,14 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     }
 }
 
-McElement McModel::buildElement(const GreedyMesher::Quad  &quad,
+McElement McModel::buildElement(const GreedyMesher::Quad &quad,
                                 const TextureAtlas::UVRect &uv) const {
     McElement el;
     el.from = quad.from;
-    el.to   = quad.to;
+    el.to = quad.to;
 
     McFace face;
-    face.uv      = uv;
+    face.uv = uv;
     face.texture = "#0";
     el.faces[McConstants::faceName(quad.face)] = face;
     return el;
@@ -209,8 +210,7 @@ static void appendFloat(std::string &out, double v) {
 
 static void writeCompactStr(std::string &out,
                             const nlohmann::ordered_json &j,
-                            int indent = 0)
-{
+                            int indent = 0) {
     if (j.is_object()) {
         out += "{\n";
         const std::string tab1(indent + 1, '\t');
@@ -227,25 +227,29 @@ static void writeCompactStr(std::string &out,
         out += '\n';
         out.append(indent, '\t');
         out += '}';
-
     } else if (j.is_array()) {
         bool allPrimitive = true;
-        for (const auto &elem : j)
-            if (elem.is_object() || elem.is_array()) { allPrimitive = false; break; }
+        for (const auto &elem: j)
+            if (elem.is_object() || elem.is_array()) {
+                allPrimitive = false;
+                break;
+            }
 
         if (allPrimitive) {
             out += '[';
             bool first = true;
-            for (const auto &elem : j) {
+            for (const auto &elem: j) {
                 if (!first) out += ", ";
                 first = false;
                 if (elem.is_number_float())
                     appendFloat(out, elem.get<double>());
                 else if (elem.is_number_integer())
                     out += std::to_string(elem.get<int64_t>());
-                else if (elem.is_string())
-                    { out += '"'; out += elem.get<std::string>(); out += '"'; }
-                else if (elem.is_boolean())
+                else if (elem.is_string()) {
+                    out += '"';
+                    out += elem.get<std::string>();
+                    out += '"';
+                } else if (elem.is_boolean())
                     out += elem.get<bool>() ? "true" : "false";
                 else
                     out += elem.dump();
@@ -255,7 +259,7 @@ static void writeCompactStr(std::string &out,
             out += "[\n";
             const std::string tab1(indent + 1, '\t');
             bool first = true;
-            for (const auto &elem : j) {
+            for (const auto &elem: j) {
                 if (!first) out += ",\n";
                 first = false;
                 out += tab1;
@@ -265,13 +269,14 @@ static void writeCompactStr(std::string &out,
             out.append(indent, '\t');
             out += ']';
         }
-
     } else if (j.is_number_float()) {
         appendFloat(out, j.get<double>());
     } else if (j.is_number_integer()) {
         out += std::to_string(j.get<int64_t>());
     } else if (j.is_string()) {
-        out += '"'; out += j.get<std::string>(); out += '"';
+        out += '"';
+        out += j.get<std::string>();
+        out += '"';
     } else if (j.is_boolean()) {
         out += j.get<bool>() ? "true" : "false";
     } else {
@@ -294,73 +299,127 @@ void McModel::writeJson(const std::string &outputPath) const {
 
     // ── Display (before elements for easy editing) ────────────────────────────
     root["display"] = {
-        {"gui", {
-            {"rotation", {McConstants::DISPLAY.guiRotX,
-                          McConstants::DISPLAY.guiRotY,
-                          McConstants::DISPLAY.guiRotZ}},
-            {"scale",    {McConstants::DISPLAY.guiScaleXY,
-                          McConstants::DISPLAY.guiScaleXY,
-                          McConstants::DISPLAY.guiScaleXY}}
-        }},
-        {"ground", {
-            {"translation", {0.0f, McConstants::DISPLAY.groundTransY, 0.0f}},
-            {"scale",       {McConstants::DISPLAY.groundScale,
-                             McConstants::DISPLAY.groundScale,
-                             McConstants::DISPLAY.groundScale}}
-        }},
-        {"thirdperson_righthand", {
-            {"rotation",    {McConstants::DISPLAY.tpRotX,
-                             McConstants::DISPLAY.tpRotY, 0.0f}},
-            {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
-            {"scale",       {McConstants::DISPLAY.tpScale,
-                             McConstants::DISPLAY.tpScale,
-                             McConstants::DISPLAY.tpScale}}
-        }},
-        {"thirdperson_lefthand", {
-            {"rotation",    {McConstants::DISPLAY.tpRotX,
-                             McConstants::DISPLAY.tpRotY, 0.0f}},
-            {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
-            {"scale",       {McConstants::DISPLAY.tpScale,
-                             McConstants::DISPLAY.tpScale,
-                             McConstants::DISPLAY.tpScale}}
-        }},
-        {"firstperson_righthand", {
-            {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
-            {"scale",    {McConstants::DISPLAY.fpScale,
-                          McConstants::DISPLAY.fpScale,
-                          McConstants::DISPLAY.fpScale}}
-        }},
-        {"firstperson_lefthand", {
-            {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
-            {"scale",    {McConstants::DISPLAY.fpScale,
-                          McConstants::DISPLAY.fpScale,
-                          McConstants::DISPLAY.fpScale}}
-        }}
+        {
+            "gui", {
+                {
+                    "rotation", {
+                        McConstants::DISPLAY.guiRotX,
+                        McConstants::DISPLAY.guiRotY,
+                        McConstants::DISPLAY.guiRotZ
+                    }
+                },
+                {
+                    "scale", {
+                        McConstants::DISPLAY.guiScaleXY,
+                        McConstants::DISPLAY.guiScaleXY,
+                        McConstants::DISPLAY.guiScaleXY
+                    }
+                }
+            }
+        },
+        {
+            "ground", {
+                {"translation", {0.0f, McConstants::DISPLAY.groundTransY, 0.0f}},
+                {
+                    "scale", {
+                        McConstants::DISPLAY.groundScale,
+                        McConstants::DISPLAY.groundScale,
+                        McConstants::DISPLAY.groundScale
+                    }
+                }
+            }
+        },
+        {
+            "thirdperson_righthand", {
+                {
+                    "rotation", {
+                        McConstants::DISPLAY.tpRotX,
+                        McConstants::DISPLAY.tpRotY, 0.0f
+                    }
+                },
+                {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
+                {
+                    "scale", {
+                        McConstants::DISPLAY.tpScale,
+                        McConstants::DISPLAY.tpScale,
+                        McConstants::DISPLAY.tpScale
+                    }
+                }
+            }
+        },
+        {
+            "thirdperson_lefthand", {
+                {
+                    "rotation", {
+                        McConstants::DISPLAY.tpRotX,
+                        McConstants::DISPLAY.tpRotY, 0.0f
+                    }
+                },
+                {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
+                {
+                    "scale", {
+                        McConstants::DISPLAY.tpScale,
+                        McConstants::DISPLAY.tpScale,
+                        McConstants::DISPLAY.tpScale
+                    }
+                }
+            }
+        },
+        {
+            "firstperson_righthand", {
+                {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
+                {
+                    "scale", {
+                        McConstants::DISPLAY.fpScale,
+                        McConstants::DISPLAY.fpScale,
+                        McConstants::DISPLAY.fpScale
+                    }
+                }
+            }
+        },
+        {
+            "firstperson_lefthand", {
+                {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
+                {
+                    "scale", {
+                        McConstants::DISPLAY.fpScale,
+                        McConstants::DISPLAY.fpScale,
+                        McConstants::DISPLAY.fpScale
+                    }
+                }
+            }
+        }
     };
 
     // ── Elements ──────────────────────────────────────────────────────────────
     ojson elementsArr = ojson::array();
-    for (const auto &el : elements_) {
+    for (const auto &el: elements_) {
         ojson elem;
         elem["from"] = {el.from.x, el.from.y, el.from.z};
-        elem["to"]   = {el.to.x,   el.to.y,   el.to.z};
+        elem["to"] = {el.to.x, el.to.y, el.to.z};
 
         if (el.hasRotation) {
             elem["rotation"] = {
-                {"angle",   el.rotation.angle},
-                {"axis",    std::string(1, el.rotation.axis)},
-                {"origin",  {el.rotation.origin.x,
-                             el.rotation.origin.y,
-                             el.rotation.origin.z}},
+                {"angle", el.rotation.angle},
+                {"axis", std::string(1, el.rotation.axis)},
+                {
+                    "origin", {
+                        el.rotation.origin.x,
+                        el.rotation.origin.y,
+                        el.rotation.origin.z
+                    }
+                },
                 {"rescale", el.rotation.rescale}
             };
         }
 
         ojson facesObj;
-        for (const auto &[faceName, mcFace] : el.faces) {
+        for (const auto &[faceName, mcFace]: el.faces) {
             ojson fj;
-            fj["uv"]      = {mcFace.uv[0], mcFace.uv[1],
-                             mcFace.uv[2], mcFace.uv[3]};
+            fj["uv"] = {
+                mcFace.uv[0], mcFace.uv[1],
+                mcFace.uv[2], mcFace.uv[3]
+            };
             fj["texture"] = mcFace.texture;
             if (mcFace.tintindex >= 0) fj["tintindex"] = mcFace.tintindex;
             facesObj[faceName] = fj;
@@ -383,18 +442,18 @@ void McModel::writeJson(const std::string &outputPath) const {
     out.close();
 
     std::cout << "[McModel] Wrote " << elements_.size()
-              << " elements to: " << outputPath << "\n";
+            << " elements to: " << outputPath << "\n";
 }
 
 void McModel::printStats() const {
     int count = elementCount();
     std::cout << "[McModel] MC elements (JSON cubes): " << count << "\n"
-              << "          NOTE: This is NOT the voxel count. Elements are\n"
-              << "          merged voxel faces — higher quality CAN produce\n"
-              << "          fewer elements when large flat regions merge.\n";
+            << "          NOTE: This is NOT the voxel count. Elements are\n"
+            << "          merged voxel faces — higher quality CAN produce\n"
+            << "          fewer elements when large flat regions merge.\n";
     if (count > McConstants::ELEMENT_PERF_THRESHOLD)
         std::cout << "[McModel] WARNING: " << count << " elements is very high"
-                  << " — may cause in-game lag. Consider reducing --quality or --density.\n";
+                << " — may cause in-game lag. Consider reducing --quality or --density.\n";
     else if (count > McConstants::ELEMENT_WARN_THRESHOLD)
         std::cout << "[McModel] Note: " << count << " elements is high but should load fine.\n";
     else

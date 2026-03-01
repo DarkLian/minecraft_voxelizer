@@ -24,8 +24,8 @@ Mesh ObjLoader::load(const std::string &path) {
     if (!reader.Warning().empty())
         std::cerr << "[ObjLoader] Warning: " << reader.Warning() << "\n";
 
-    const auto &attrib    = reader.GetAttrib();
-    const auto &shapes    = reader.GetShapes();
+    const auto &attrib = reader.GetAttrib();
+    const auto &shapes = reader.GetShapes();
     const auto &materials = reader.GetMaterials();
 
     Mesh mesh;
@@ -34,37 +34,36 @@ Mesh ObjLoader::load(const std::string &path) {
     // Index 0 = default grey fallback (no MTL assigned)
     {
         Mesh::Material def;
-        def.name      = "default";
+        def.name = "default";
         def.baseColor = glm::vec3(0.8f);
         mesh.materials.push_back(def);
     }
 
-    for (const auto &m : materials) {
+    for (const auto &m: materials) {
         Mesh::Material mat;
-        mat.name      = m.name;
+        mat.name = m.name;
         mat.baseColor = glm::vec3(m.diffuse[0], m.diffuse[1], m.diffuse[2]);
-        mat.flipV     = true;  // OBJ UV convention: V=0 at bottom
+        mat.flipV = true; // OBJ UV convention: V=0 at bottom
 
         if (!m.diffuse_texname.empty()) {
             std::string texPath =
-                (std::filesystem::path(path).parent_path() / m.diffuse_texname).string();
+                    (std::filesystem::path(path).parent_path() / m.diffuse_texname).string();
             mat.texturePath = texPath;
 
             // ── Load texture via stb_image ─────────────────────────────────
             int w = 0, h = 0, ch = 0;
-            // Request 3 channels (RGB); stb_image converts RGBA/grey if needed
-            uint8_t *data = stbi_load(texPath.c_str(), &w, &h, &ch, 3);
-            if (data) {
-                mat.imageW        = w;
-                mat.imageH        = h;
+            // Request 3 channels (RGB); stb_image converts RGBA/gray if needed
+            if (uint8_t *data = stbi_load(texPath.c_str(), &w, &h, &ch, 3)) {
+                mat.imageW = w;
+                mat.imageH = h;
                 mat.imageChannels = 3;
                 mat.imageData.assign(data, data + static_cast<size_t>(w) * h * 3);
                 stbi_image_free(data);
                 std::cout << "[ObjLoader]   Loaded texture: " << texPath
-                          << " (" << w << "×" << h << ")\n";
+                        << " (" << w << "×" << h << ")\n";
             } else {
                 std::cerr << "[ObjLoader]   WARNING: could not load texture: "
-                          << texPath << " — " << stbi_failure_reason() << "\n";
+                        << texPath << " — " << stbi_failure_reason() << "\n";
             }
         }
 
@@ -72,20 +71,23 @@ Mesh ObjLoader::load(const std::string &path) {
     }
 
     // ── Geometry ──────────────────────────────────────────────────────────────
-    for (const auto &shape : shapes) {
+    for (const auto &shape: shapes) {
         size_t indexOffset = 0;
         for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
             int fv = shape.mesh.num_face_vertices[f];
-            if (fv != 3) { indexOffset += fv; continue; }
+            if (fv != 3) {
+                indexOffset += fv;
+                continue;
+            }
 
-            Mesh::Triangle tri;
+            Mesh::Triangle tri{};
             int matId = shape.mesh.material_ids[f];
             tri.materialIndex = (matId < 0) ? 0 : matId + 1;
 
             for (int v = 0; v < 3; v++) {
                 tinyobj::index_t idx = shape.mesh.indices[indexOffset + v];
 
-                Mesh::Vertex vert;
+                Mesh::Vertex vert{};
                 vert.position = glm::vec3(
                     attrib.vertices[3 * idx.vertex_index + 0],
                     attrib.vertices[3 * idx.vertex_index + 1],
@@ -116,19 +118,19 @@ Mesh ObjLoader::load(const std::string &path) {
 
     // ── Material summary ──────────────────────────────────────────────────────
     std::cout << "[ObjLoader] Loaded " << mesh.vertices.size() << " vertices, "
-              << mesh.triangles.size() << " triangles, "
-              << mesh.materials.size() - 1 << " materials.\n";
+            << mesh.triangles.size() << " triangles, "
+            << mesh.materials.size() - 1 << " materials.\n";
     for (size_t mi = 1; mi < mesh.materials.size(); mi++) {
         const auto &mat = mesh.materials[mi];
         if (mat.hasTexture()) {
             std::cout << "[ObjLoader]   Mat[" << mi << "] '" << mat.name
-                      << "': texture " << mat.imageW << "×" << mat.imageH << " px"
-                      << " | baseColor(" << mat.baseColor.r << ","
-                      << mat.baseColor.g << "," << mat.baseColor.b << ")\n";
+                    << "': texture " << mat.imageW << "×" << mat.imageH << " px"
+                    << " | baseColor(" << mat.baseColor.r << ","
+                    << mat.baseColor.g << "," << mat.baseColor.b << ")\n";
         } else {
             glm::vec3 bc = mat.baseColor;
             std::cout << "[ObjLoader]   Mat[" << mi << "] '" << mat.name
-                      << "': flat colour (" << bc.r << "," << bc.g << "," << bc.b << ")";
+                    << "': flat colour (" << bc.r << "," << bc.g << "," << bc.b << ")";
             if (!mat.texturePath.empty())
                 std::cout << "  ← WARNING: texture failed to load!";
             else if (bc.r < 0.01f && bc.g < 0.01f && bc.b < 0.01f)

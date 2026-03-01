@@ -19,7 +19,7 @@ public:
 
     // ── Factory method ────────────────────────────────────────────────────────
     // Inspects the file extension and returns the appropriate concrete loader.
-    // Usage: auto loader = MeshLoader::create("model.obj");
+    // Usage: autoloader = MeshLoader::create("model.obj");
     static std::unique_ptr<MeshLoader> create(const std::string &path);
 
 protected:

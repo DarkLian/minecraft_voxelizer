@@ -25,8 +25,7 @@ int TextureAtlas::nextPow2(int v) {
 
 TextureAtlas::TextureAtlas(int maxRowWidth, int maxAtlasSize)
     : maxRowWidth_(maxRowWidth)
-    , maxAtlasSize_(std::max(1, maxAtlasSize))
-{
+      , maxAtlasSize_(std::max(1, maxAtlasSize)) {
     // 0 means auto — will be set in hintTotalPixels() or finalize()
     if (maxRowWidth_ <= 0)
         maxRowWidth_ = maxAtlasSize_; // fallback: full width, use hint to refine
@@ -54,16 +53,16 @@ TextureAtlas::Region TextureAtlas::allocate(int w, int h) {
     // Wrap to a new row if this region doesn't fit.
     if (curX_ + w > maxRowWidth_ && curX_ > 0) {
         curY_ += rowH_;
-        curX_  = 0;
-        rowH_  = 0;
+        curX_ = 0;
+        rowH_ = 0;
     }
 
-    Region r{ curX_, curY_, w, h };
+    Region r{curX_, curY_, w, h};
 
-    curX_    += w;
-    rowH_     = std::max(rowH_, h);
-    packedW_  = std::max(packedW_, curX_);
-    packedH_  = curY_ + rowH_;
+    curX_ += w;
+    rowH_ = std::max(rowH_, h);
+    packedW_ = std::max(packedW_, curX_);
+    packedH_ = curY_ + rowH_;
 
     return r;
 }
@@ -84,10 +83,10 @@ void TextureAtlas::finalize() {
         // let the user reduce --density. Never silently clip.
         if (atlasW_ > maxAtlasSize_ || atlasH_ > maxAtlasSize_) {
             std::cerr << "[TextureAtlas] WARNING: atlas is " << atlasW_
-                      << " x " << atlasH_ << " px — content won't be clipped,\n"
-                      << "  but this will be slow to generate and large on disk.\n"
-                      << "  Reduce --density to shrink it. Recommended density for\n"
-                      << "  this quality: source_texture_size / grid_resolution.\n";
+                    << " x " << atlasH_ << " px — content won't be clipped,\n"
+                    << "  but this will be slow to generate and large on disk.\n"
+                    << "  Reduce --density to shrink it. Recommended density for\n"
+                    << "  this quality: source_texture_size / grid_resolution.\n";
         }
     }
 
@@ -95,7 +94,7 @@ void TextureAtlas::finalize() {
     finalized_ = true;
 
     std::cout << "[TextureAtlas] Layout finalised: " << atlasW_ << " x " << atlasH_
-              << " px  (packed content: " << packedW_ << " x " << packedH_ << " px)\n";
+            << " px  (packed content: " << packedW_ << " x " << packedH_ << " px)\n";
 }
 
 // ── Phase 3: Set pixels ───────────────────────────────────────────────────────
@@ -113,10 +112,10 @@ TextureAtlas::UVRect TextureAtlas::regionUV(const Region &r) const {
     if (!finalized_)
         throw std::logic_error("TextureAtlas: regionUV() called before finalize().");
 
-    float fw = static_cast<float>(atlasW_);
-    float fh = static_cast<float>(atlasH_);
-    float u1 = (static_cast<float>(r.x)       / fw) * 16.0f;
-    float v1 = (static_cast<float>(r.y)       / fh) * 16.0f;
+    auto fw = static_cast<float>(atlasW_);
+    auto fh = static_cast<float>(atlasH_);
+    float u1 = (static_cast<float>(r.x) / fw) * 16.0f;
+    float v1 = (static_cast<float>(r.y) / fh) * 16.0f;
     float u2 = (static_cast<float>(r.x + r.w) / fw) * 16.0f;
     float v2 = (static_cast<float>(r.y + r.h) / fh) * 16.0f;
     return {u1, v1, u2, v2};
@@ -134,9 +133,9 @@ void TextureAtlas::writePng(const std::string &path) const {
 
     // Float [0,1] → uint8 conversion. Each pixel is independent, safe to
     // parallelize with OpenMP. Falls back to single-threaded if not available.
-    #ifdef _OPENMP
-    #pragma omp parallel for schedule(static)
-    #endif
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
     for (int i = 0; i < totalPx; i++) {
         const glm::vec3 &c = pixels_[i];
         raw[i * 3 + 0] = static_cast<uint8_t>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f + 0.5f);
@@ -154,6 +153,6 @@ void TextureAtlas::writePng(const std::string &path) const {
 
     long long bytes = static_cast<long long>(w) * h * 3;
     std::cout << "[TextureAtlas] Wrote atlas (" << w << " x " << h
-              << " px, ~" << (bytes / 1024 / 1024) << " MB uncompressed) to: "
-              << path << "\n";
+            << " px, ~" << (bytes / 1024 / 1024) << " MB uncompressed) to: "
+            << path << "\n";
 }

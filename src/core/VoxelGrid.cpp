@@ -32,7 +32,7 @@ void VoxelGrid::setColor(int x, int y, int z, const glm::vec3 &color) {
 void VoxelGrid::set(int x, int y, int z, const glm::vec3 &color) {
     if (!inBounds(x, y, z)) return;
     int i = idx(x, y, z);
-    solid_[i]  = 1;
+    solid_[i] = 1;
     colors_[i] = color;
 }
 
@@ -42,7 +42,7 @@ void VoxelGrid::setFaceTriIndex(int x, int y, int z, Face face, int triIndex) {
 }
 
 void VoxelGrid::setColorAndTri(int x, int y, int z,
-                                const glm::vec3 &color, int triIndex) {
+                               const glm::vec3 &color, int triIndex) {
     if (!inBounds(x, y, z)) return;
     colors_[idx(x, y, z)] = color;
     // Store as fallback across all face directions that don't have a winner yet
@@ -80,12 +80,18 @@ bool VoxelGrid::isFaceExposed(int x, int y, int z, Face face) const {
     if (!isSolid(x, y, z)) return false;
     int nx = x, ny = y, nz = z;
     switch (face) {
-        case Face::Down:  ny--; break;
-        case Face::Up:    ny++; break;
-        case Face::North: nz--; break;
-        case Face::South: nz++; break;
-        case Face::West:  nx--; break;
-        case Face::East:  nx++; break;
+        case Face::Down: ny--;
+            break;
+        case Face::Up: ny++;
+            break;
+        case Face::North: nz--;
+            break;
+        case Face::South: nz++;
+            break;
+        case Face::West: nx--;
+            break;
+        case Face::East: nx++;
+            break;
     }
     return !isSolid(nx, ny, nz);
 }
@@ -98,6 +104,6 @@ bool VoxelGrid::inBounds(int x, int y, int z) const {
 
 int VoxelGrid::solidCount() const {
     int count = 0;
-    for (auto v : solid_) count += v;
+    for (auto v: solid_) count += v;
     return count;
 }

@@ -2,6 +2,8 @@
 
 Converts 3D model files (`.obj`, `.gltf`, `.glb`) into Minecraft item model JSON + texture atlas PNG, ready to drop into a resource pack.
 
+You may consider using the UI one https://github.com/DarkLian/mc-voxelizer-gui
+
 ---
 
 ## Showcase

@@ -2,46 +2,16 @@
 
 Converts 3D model files (`.obj`, `.gltf`, `.glb`) into Minecraft item model JSON + texture atlas PNG, ready to drop into a resource pack.
 
-## Building
-
-Requires CMake 3.20+ and a C++20 compiler. All dependencies are fetched automatically via CMake FetchContent (GLM, nlohmann/json, tinyobjloader, tinygltf, stb).
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-```
-
-Output: `build/bin/mc_voxelizer.exe` (Windows) or `build/bin/mc_voxelizer` (Linux/macOS).
-
-Static linking is enabled on Windows so the binary runs without MinGW DLLs.
-
 ---
+
+## Showcase
+
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/cdd0839a-7716-4756-a700-cd7923ebf334" />
+quality = 7, density = 16, originally from .gltf model
 
 ## Usage
 
-### Interactive mode
-
-Run with no arguments (or double-click the `.exe`) to be prompted for each setting:
-
-```
-mc_voxelizer
-```
-
-### Command line
-
-```
-mc_voxelizer <input.obj|.gltf|.glb> [options]
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--quality 1-7` | `3` | Voxel grid resolution |
-| `--density 1-64` | auto | Texture pixels per voxel face |
-| `--output <dir>` | `./output` | Output directory |
-| `--name <str>` | filename stem | Model and file name |
-| `--modid <str>` | `mymod` | Mod namespace for the texture path |
-| `--solid` | on | Fill enclosed interior voxels |
-| `--help` | | Print usage |
+Double click the .exe
 
 ---
 
@@ -54,8 +24,8 @@ mc_voxelizer <input.obj|.gltf|.glb> [options]
 | 3 | 32³ | 0.5 | Recommended default |
 | 4 | 48³ | 0.33 | |
 | 5 | 64³ | 0.25 | Good detail |
-| 6 | 96³ | 0.167 | Fine surface detail |
-| 7 | 128³ | 0.125 | Maximum detail (slow, ~1–3 min) |
+| 6 | 96³ | 0.167 | 
+| 7 | 128³ | 0.125 | Slowest
 
 Higher quality = finer voxels = more surface detail. The greedy mesher keeps element counts manageable even at quality 7 by merging adjacent same-facing voxels into single rectangles.
 
@@ -78,23 +48,6 @@ Going above this upscales bilinearly — no extra detail is gained and the PNG g
 | 1024 × 1024 | 32 | 21 | 16 | 8 | 8 |
 | 2048 × 2048 | 32 | 32 | 32 | 16 | 16 |
 
-Leave `--density` unset to have the tool calculate it automatically from the loaded texture.
-
----
-
-## Recommended settings
-
-```bash
-# Solid prop or weapon
-mc_voxelizer sword.glb --quality 4 --modid mymod --name sword
-
-# Character body (no fine facial detail)
-mc_voxelizer character.glb --quality 6 --modid mymod --name character
-
-# Maximum geometric detail
-mc_voxelizer character.glb --quality 7 --modid mymod --name character
-```
-
 ---
 
 ## Output
@@ -103,17 +56,6 @@ mc_voxelizer character.glb --quality 7 --modid mymod --name character
 output/
   <n>.json    Minecraft item model
   <n>.png     Texture atlas
-```
-
-Copy to your resource pack:
-```
-assets/<modid>/models/item/<n>.json
-assets/<modid>/textures/item/<n>.png
-```
-
-Reference in your item definition (Fabric / 1.21+ data-driven items):
-```json
-{ "model": { "type": "minecraft:model", "model": "<modid>:item/<n>" } }
 ```
 
 ### Output JSON format
@@ -126,8 +68,6 @@ Reference in your item definition (Fabric / 1.21+ data-driven items):
 }
 ```
 
-- No `parent` field — the model is standalone
-- No `particle` texture
 - Keys are ordered: `textures` → `display` → `elements`, so display settings are easy to find without scrolling past thousands of element entries
 - Primitive arrays (coordinates, UVs) are written inline to keep file size small
 
@@ -178,3 +118,5 @@ The texture PNG is missing or in the wrong path. Verify `assets/<modid>/textures
 
 **Resource pack fails to reload intermittently**
 MC caches compiled model data. Remove and re-add the resource pack, or delete `.minecraft/assets/` to force a fresh build.
+
+**Model becomes black in blockbench** This could occur if you are using high quality and density model. Try restarting blockbench and reload.

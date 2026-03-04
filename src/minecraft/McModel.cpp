@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <unordered_map>
 #ifdef _OPENMP
 #endif
 
@@ -37,59 +38,46 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
                                const VoxelGrid &grid,
                                const Mesh &srcMesh) {
     // ── Which voxel owns this pixel? ──────────────────────────────────────────
-    int vu = q.uStart + pu / density; // voxel coordinate on uAxis
-    int vv = q.vStart + pv / density; // voxel coordinate on vAxis
-    int vs = q.sweepLayer; // voxel coordinate on sweepAxis
+    int vu = q.uStart + pu / density;  // voxel coordinate on uAxis
+    int vv = q.vStart + pv / density;  // voxel coordinate on vAxis
+    int vs = q.sweepLayer;             // voxel coordinate on sweepAxis
 
     glm::ivec3 voxel;
     voxel[q.sweepAxis] = vs;
-    voxel[q.uAxis] = vu;
-    voxel[q.vAxis] = vv;
+    voxel[q.uAxis]     = vu;
+    voxel[q.vAxis]     = vv;
 
     // ── Try to bake from the stored triangle ──────────────────────────────────
-    // Look up the triangle recorded for THIS specific face direction.
-    // This is what allows eyes (front-face triangle) to differ from
-    // hair (top-face triangle) on the same voxel.
     int triIdx = grid.getTriIndex(voxel.x, voxel.y, voxel.z, q.face);
-    // Fall back to any recorded triangle if this face direction has none.
     if (triIdx < 0)
         triIdx = grid.getAnyTriIndex(voxel.x, voxel.y, voxel.z);
 
     if (triIdx >= 0 && triIdx < static_cast<int>(srcMesh.triangles.size())) {
         const Mesh::Triangle &tri = srcMesh.triangles[triIdx];
 
-        // Only bake if this material actually has a texture image.
         bool hasTex = (tri.materialIndex >= 0 &&
                        tri.materialIndex < static_cast<int>(srcMesh.materials.size()) &&
                        srcMesh.materials[tri.materialIndex].hasTexture());
 
         if (hasTex) {
-            // ── Compute 3D MC position of this pixel's center ─────────────────
-            // Grid dimensions for each axis
             int dims[3] = {grid.resX, grid.resY, grid.resZ};
             float voxelSizeS = 16.0f / static_cast<float>(dims[q.sweepAxis]);
             float voxelSizeU = 16.0f / static_cast<float>(dims[q.uAxis]);
             float voxelSizeV = 16.0f / static_cast<float>(dims[q.vAxis]);
 
-            // Sub-pixel fractional position within the voxel face: [0,1)
-            // Center the sample in each sub-pixel cell.
             float fu = (static_cast<float>(pu % density) + 0.5f) / static_cast<float>(density);
             float fv = (static_cast<float>(pv % density) + 0.5f) / static_cast<float>(density);
 
             glm::vec3 pixelPos(0.0f);
-            // Sweep axis: use the outer face of the voxel (exposed face center)
-            pixelPos[q.sweepAxis] = (vs + 0.5f) * voxelSizeS; // voxel center in sweep
-            // U and V axes: interpolate within the voxel face
-            pixelPos[q.uAxis] = (vu + fu) * voxelSizeU;
-            pixelPos[q.vAxis] = (vv + fv) * voxelSizeV;
+            pixelPos[q.sweepAxis] = (vs + 0.5f) * voxelSizeS;
+            pixelPos[q.uAxis]     = (vu + fu) * voxelSizeU;
+            pixelPos[q.vAxis]     = (vv + fv) * voxelSizeV;
 
-            // ── Barycentric coords of pixelPos relative to the triangle ────────
             auto verts = srcMesh.getTriangleVertices(tri);
             const glm::vec3 &p0 = verts[0].position;
             const glm::vec3 &p1 = verts[1].position;
             const glm::vec3 &p2 = verts[2].position;
 
-            // Cramér's rule (same as Voxelizer::barycentricCoords)
             glm::vec3 v0 = p1 - p0;
             glm::vec3 v1 = p2 - p0;
             glm::vec3 v2 = pixelPos - p0;
@@ -101,13 +89,12 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
             float d21 = glm::dot(v2, v1);
             float denom = d00 * d11 - d01 * d01;
 
-            glm::vec2 bary2(1.0f / 3.0f); // fallback: centroid
+            glm::vec2 bary2(1.0f / 3.0f);
             if (std::abs(denom) > 1e-10f) {
                 float bv = (d11 * d20 - d01 * d21) / denom;
                 float bw = (d00 * d21 - d01 * d20) / denom;
                 bary2 = glm::vec2(glm::clamp(bv, 0.0f, 1.0f),
                                   glm::clamp(bw, 0.0f, 1.0f));
-                // Clamp so u+v ≤ 1 (keep inside triangle)
                 if (bary2.x + bary2.y > 1.0f) {
                     float s = bary2.x + bary2.y;
                     bary2 /= s;
@@ -122,6 +109,52 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
     return grid.getColor(voxel.x, voxel.y, voxel.z);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AabbKey — 6-float bounding box used as a hash map key for element merging.
+//
+// All from/to values are exact multiples of (16.0 / res), computed from
+// integer voxel indices, so identical AABBs always produce bit-for-bit
+// identical float values — safe to memcpy-hash without epsilon tolerance.
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+
+struct AabbKey {
+    uint32_t fx, fy, fz;  // from.x/y/z bits
+    uint32_t tx, ty, tz;  // to.x/y/z bits
+
+    bool operator==(const AabbKey &o) const {
+        return fx == o.fx && fy == o.fy && fz == o.fz &&
+               tx == o.tx && ty == o.ty && tz == o.tz;
+    }
+};
+
+struct AabbKeyHash {
+    size_t operator()(const AabbKey &k) const noexcept {
+        // FNV-1a style mix over the 6 uint32 words
+        size_t h = 14695981039346656037ULL;
+        auto mix = [&](uint32_t v) {
+            h ^= static_cast<size_t>(v);
+            h *= 1099511628211ULL;
+        };
+        mix(k.fx); mix(k.fy); mix(k.fz);
+        mix(k.tx); mix(k.ty); mix(k.tz);
+        return h;
+    }
+};
+
+AabbKey makeKey(const glm::vec3 &from, const glm::vec3 &to) {
+    AabbKey k{};
+    std::memcpy(&k.fx, &from.x, 4);
+    std::memcpy(&k.fy, &from.y, 4);
+    std::memcpy(&k.fz, &from.z, 4);
+    std::memcpy(&k.tx, &to.x,   4);
+    std::memcpy(&k.ty, &to.y,   4);
+    std::memcpy(&k.tz, &to.z,   4);
+    return k;
+}
+
+} // anonymous namespace
+
 // ── Build ─────────────────────────────────────────────────────────────────────
 
 void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
@@ -134,32 +167,30 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     elements_.reserve(quads.size());
 
     // Give the atlas a total-pixel hint so it can choose an optimal row width
-    // before any allocations happen.  This prevents the atlas becoming very
-    // wide/tall in one axis and wasting space in the other.
+    // before any allocations happen.
     {
         long long totalPx = 0;
-        for (const auto &q: quads)
+        for (const auto &q : quads)
             totalPx += static_cast<long long>(std::max(1, q.uCount * density))
-                    * std::max(1, q.vCount * density);
+                     * std::max(1, q.vCount * density);
         atlas.hintTotalPixels(static_cast<int>(std::min(totalPx, static_cast<long long>(INT_MAX))));
     }
 
-    // Phase 1: allocate atlas regions
+    // Phase 1: allocate atlas regions (one per quad — unchanged)
     std::vector<TextureAtlas::Region> regions;
     regions.reserve(quads.size());
-    for (const auto &q: quads) {
+    for (const auto &q : quads) {
         int pw = std::max(1, q.uCount * density);
         int ph = std::max(1, q.vCount * density);
         regions.push_back(atlas.allocate(pw, ph));
     }
 
-    // Phase 2: finalise layout
+    // Phase 2: finalize atlas layout
     atlas.finalize();
 
-    // Phase 3: bake pixels + build elements.
-    // Pre-size elements_ so threads can write by index without data races.
-    // setPixel is safe because each quad occupies a unique atlas region.
-    elements_.resize(quads.size());
+    // Phase 3: bake pixels + build one intermediate McElement per quad.
+    // We keep 1:1 indexing here so the OpenMP loop is race-free.
+    std::vector<McElement> intermediate(quads.size());
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic, 4)
@@ -176,18 +207,67 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
         }
 
         TextureAtlas::UVRect uv = atlas.regionUV(r);
-        elements_[i] = buildElement(q, uv);
+        intermediate[i] = buildElement(q, uv);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 4: AABB-based multi-face element packing (OPTIMIZATION v1.3)
+    //
+    // A Minecraft model element supports up to 6 faces in its "faces" map,
+    // but buildElement (Phase 3) always emits exactly 1 face per element.
+    // Quads from different face directions that share an identical from/to
+    // bounding box can be merged into one element with multiple face entries.
+    //
+    // Example: an isolated voxel with all 6 faces exposed currently produces
+    // 6 single-face elements. After merging it becomes 1 element with 6 faces.
+    //
+    // Visual correctness: each face in the merged element retains its own
+    // atlas UV rect (baked in Phase 3), so colors are completely unchanged.
+    // The Minecraft renderer reads each face's UV independently.
+    //
+    // This is most impactful for thin/protruding geometry (hair, fingers,
+    // clothing edges) where most surface voxels have 4–6 exposed faces.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Maps AABB → insertion index in elements_
+    std::unordered_map<AabbKey, int, AabbKeyHash> aabbIndex;
+    aabbIndex.reserve(intermediate.size());
+
+    for (auto &el : intermediate) {
+        AabbKey key = makeKey(el.from, el.to);
+
+        auto it = aabbIndex.find(key);
+        if (it == aabbIndex.end()) {
+            // First time we see this AABB — start a new merged element
+            aabbIndex[key] = static_cast<int>(elements_.size());
+            elements_.push_back(std::move(el));
+        } else {
+            // Same AABB already exists — merge this element's faces into it.
+            // Each face name ("up", "north", …) is unique within one AABB
+            // because the GreedyMesher emits at most one quad per face
+            // direction per sweep layer.
+            McElement &target = elements_[it->second];
+            for (auto &[name, face] : el.faces)
+                target.faces[name] = std::move(face);
+        }
+    }
+
+    int before = static_cast<int>(intermediate.size());
+    int after  = static_cast<int>(elements_.size());
+    std::cout << "[McModel] Element packing: " << before << " quads → "
+              << after << " elements  ("
+              << (before - after) << " saved, "
+              << (100 * (before - after) / std::max(1, before)) << "% reduction)\n";
 }
 
 McElement McModel::buildElement(const GreedyMesher::Quad &quad,
                                 const TextureAtlas::UVRect &uv) {
     McElement el;
     el.from = quad.from;
-    el.to = quad.to;
+    el.to   = quad.to;
 
     McFace face;
-    face.uv = uv;
+    face.uv      = uv;
     face.texture = "#0";
     el.faces[McConstants::faceName(quad.face)] = face;
     return el;
@@ -195,16 +275,11 @@ McElement McModel::buildElement(const GreedyMesher::Quad &quad,
 
 // ── Compact JSON serializer ───────────────────────────────────────────────────
 // Writes objects/arrays-of-objects with indentation, primitive arrays inline.
-// Uses snprintf for numbers to avoid per-number std::string heap allocations
-// (nlohmann's dump() allocates a new string for every scalar, which is very
-// slow when serializing 15k+ elements each with dozens of float values).
+// Uses snprintf for numbers to avoid per-number std::string heap allocations.
 
 static void appendFloat(std::string &out, double v) {
     char buf[32];
-    // Strip trailing zeros: "1.0" not "1.000000", but keep at least one decimal
-    // if the value is not a whole number.
     int n = std::snprintf(buf, sizeof(buf), "%.10g", v);
-    // snprintf with %g already strips trailing zeros
     out.append(buf, n);
 }
 
@@ -229,16 +304,13 @@ static void writeCompactStr(std::string &out,
         out += '}';
     } else if (j.is_array()) {
         bool allPrimitive = true;
-        for (const auto &elem: j)
-            if (elem.is_object() || elem.is_array()) {
-                allPrimitive = false;
-                break;
-            }
+        for (const auto &elem : j)
+            if (elem.is_object() || elem.is_array()) { allPrimitive = false; break; }
 
         if (allPrimitive) {
             out += '[';
             bool first = true;
-            for (const auto &elem: j) {
+            for (const auto &elem : j) {
                 if (!first) out += ", ";
                 first = false;
                 if (elem.is_number_float())
@@ -259,7 +331,7 @@ static void writeCompactStr(std::string &out,
             out += "[\n";
             const std::string tab1(indent + 1, '\t');
             bool first = true;
-            for (const auto &elem: j) {
+            for (const auto &elem : j) {
                 if (!first) out += ",\n";
                 first = false;
                 out += tab1;
@@ -287,141 +359,65 @@ static void writeCompactStr(std::string &out,
 // ── JSON serialization ────────────────────────────────────────────────────────
 
 void McModel::writeJson(const std::string &outputPath) const {
-    // Use ordered_json so keys appear in insertion order (textures first,
-    // then elements, then display) rather than alphabetically sorted.
     using ojson = nlohmann::ordered_json;
 
     ojson root;
 
-    // ── Textures block (top of file, no parent, no particle) ─────────────────
     root["textures"] = ojson::object();
     root["textures"]["0"] = texturePath_;
 
-    // ── Display (before elements for easy editing) ────────────────────────────
     root["display"] = {
-        {
-            "gui", {
-                {
-                    "rotation", {
-                        McConstants::DISPLAY.guiRotX,
-                        McConstants::DISPLAY.guiRotY,
-                        McConstants::DISPLAY.guiRotZ
-                    }
-                },
-                {
-                    "scale", {
-                        McConstants::DISPLAY.guiScaleXY,
-                        McConstants::DISPLAY.guiScaleXY,
-                        McConstants::DISPLAY.guiScaleXY
-                    }
-                }
-            }
-        },
-        {
-            "ground", {
-                {"translation", {0.0f, McConstants::DISPLAY.groundTransY, 0.0f}},
-                {
-                    "scale", {
-                        McConstants::DISPLAY.groundScale,
-                        McConstants::DISPLAY.groundScale,
-                        McConstants::DISPLAY.groundScale
-                    }
-                }
-            }
-        },
-        {
-            "thirdperson_righthand", {
-                {
-                    "rotation", {
-                        McConstants::DISPLAY.tpRotX,
-                        McConstants::DISPLAY.tpRotY, 0.0f
-                    }
-                },
-                {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
-                {
-                    "scale", {
-                        McConstants::DISPLAY.tpScale,
-                        McConstants::DISPLAY.tpScale,
-                        McConstants::DISPLAY.tpScale
-                    }
-                }
-            }
-        },
-        {
-            "thirdperson_lefthand", {
-                {
-                    "rotation", {
-                        McConstants::DISPLAY.tpRotX,
-                        McConstants::DISPLAY.tpRotY, 0.0f
-                    }
-                },
-                {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
-                {
-                    "scale", {
-                        McConstants::DISPLAY.tpScale,
-                        McConstants::DISPLAY.tpScale,
-                        McConstants::DISPLAY.tpScale
-                    }
-                }
-            }
-        },
-        {
-            "firstperson_righthand", {
-                {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
-                {
-                    "scale", {
-                        McConstants::DISPLAY.fpScale,
-                        McConstants::DISPLAY.fpScale,
-                        McConstants::DISPLAY.fpScale
-                    }
-                }
-            }
-        },
-        {
-            "firstperson_lefthand", {
-                {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
-                {
-                    "scale", {
-                        McConstants::DISPLAY.fpScale,
-                        McConstants::DISPLAY.fpScale,
-                        McConstants::DISPLAY.fpScale
-                    }
-                }
-            }
-        }
+        {"gui", {
+            {"rotation", {McConstants::DISPLAY.guiRotX, McConstants::DISPLAY.guiRotY, McConstants::DISPLAY.guiRotZ}},
+            {"scale",    {McConstants::DISPLAY.guiScaleXY, McConstants::DISPLAY.guiScaleXY, McConstants::DISPLAY.guiScaleXY}}
+        }},
+        {"ground", {
+            {"translation", {0.0f, McConstants::DISPLAY.groundTransY, 0.0f}},
+            {"scale",       {McConstants::DISPLAY.groundScale, McConstants::DISPLAY.groundScale, McConstants::DISPLAY.groundScale}}
+        }},
+        {"thirdperson_righthand", {
+            {"rotation",    {McConstants::DISPLAY.tpRotX, McConstants::DISPLAY.tpRotY, 0.0f}},
+            {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
+            {"scale",       {McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale}}
+        }},
+        {"thirdperson_lefthand", {
+            {"rotation",    {McConstants::DISPLAY.tpRotX, McConstants::DISPLAY.tpRotY, 0.0f}},
+            {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
+            {"scale",       {McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale}}
+        }},
+        {"firstperson_righthand", {
+            {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
+            {"scale",    {McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale}}
+        }},
+        {"firstperson_lefthand", {
+            {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
+            {"scale",    {McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale}}
+        }}
     };
 
     // ── Elements ──────────────────────────────────────────────────────────────
     ojson elementsArr = ojson::array();
-    for (const auto &el: elements_) {
+    for (const auto &el : elements_) {
         ojson elem;
         elem["from"] = {el.from.x, el.from.y, el.from.z};
-        elem["to"] = {el.to.x, el.to.y, el.to.z};
+        elem["to"]   = {el.to.x,   el.to.y,   el.to.z};
 
         if (el.hasRotation) {
             elem["rotation"] = {
-                {"angle", el.rotation.angle},
-                {"axis", std::string(1, el.rotation.axis)},
-                {
-                    "origin", {
-                        el.rotation.origin.x,
-                        el.rotation.origin.y,
-                        el.rotation.origin.z
-                    }
-                },
+                {"angle",  el.rotation.angle},
+                {"axis",   std::string(1, el.rotation.axis)},
+                {"origin", {el.rotation.origin.x, el.rotation.origin.y, el.rotation.origin.z}},
                 {"rescale", el.rotation.rescale}
             };
         }
 
         ojson facesObj;
-        for (const auto &[faceName, mcFace]: el.faces) {
+        for (const auto &[faceName, mcFace] : el.faces) {
             ojson fj;
-            fj["uv"] = {
-                mcFace.uv[0], mcFace.uv[1],
-                mcFace.uv[2], mcFace.uv[3]
-            };
+            fj["uv"]      = {mcFace.uv[0], mcFace.uv[1], mcFace.uv[2], mcFace.uv[3]};
             fj["texture"] = mcFace.texture;
-            if (mcFace.tintindex >= 0) fj["tintindex"] = mcFace.tintindex;
+            if (mcFace.tintindex >= 0)
+                fj["tintindex"] = mcFace.tintindex;
             facesObj[faceName] = fj;
         }
         elem["faces"] = facesObj;
@@ -433,27 +429,26 @@ void McModel::writeJson(const std::string &outputPath) const {
     if (!out)
         throw std::runtime_error("McModel: cannot open output file: " + outputPath);
 
-    // Pre-reserve ~100 bytes per element to avoid repeated reallocations.
     std::string buf;
-    buf.reserve(elements_.size() * 100 + 4096);
+    buf.reserve(elements_.size() * 150 + 4096);
     writeCompactStr(buf, root);
     buf += '\n';
     out.write(buf.data(), static_cast<std::streamsize>(buf.size()));
     out.close();
 
     std::cout << "[McModel] Wrote " << elements_.size()
-            << " elements to: " << outputPath << "\n";
+              << " elements to: " << outputPath << "\n";
 }
 
 void McModel::printStats() const {
     int count = elementCount();
     std::cout << "[McModel] MC elements (JSON cubes): " << count << "\n"
-            << "          NOTE: This is NOT the voxel count. Elements are\n"
-            << "          merged voxel faces — higher quality CAN produce\n"
-            << "          fewer elements when large flat regions merge.\n";
+              << "          NOTE: This is NOT the voxel count. Elements are\n"
+              << "          merged voxel faces — higher quality CAN produce\n"
+              << "          fewer elements when large flat regions merge.\n";
     if (count > McConstants::ELEMENT_PERF_THRESHOLD)
         std::cout << "[McModel] WARNING: " << count << " elements is very high"
-                << " — may cause in-game lag. Consider reducing --quality or --density.\n";
+                  << " — may cause in-game lag. Consider reducing --quality or --density.\n";
     else if (count > McConstants::ELEMENT_WARN_THRESHOLD)
         std::cout << "[McModel] Note: " << count << " elements is high but should load fine.\n";
     else

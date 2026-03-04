@@ -59,7 +59,7 @@ file(GLOB_RECURSE SOURCES
 add_executable(mc_voxelizer ${SOURCES} ${fpng_SOURCE_DIR}/src/fpng.cpp app.rc)
 
 # Define your version
-set(APP_VERSION "v1.3.0")
+set(APP_VERSION "v1.4.0")
 
 # Tell CMake to rename the output file
 set_target_properties(mc_voxelizer PROPERTIES OUTPUT_NAME "mc_voxelizer-${APP_VERSION}")

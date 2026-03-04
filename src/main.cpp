@@ -182,10 +182,10 @@ static CliArgs interactivePrompt() {
     if (s == "n" || s == "N") args.solidFill = false;
     else args.solidFill = true;
 
-    std::cout << "Enter mod ID [Enter = 'darkaddons']:\n> ";
+    std::cout << "Enter mod ID [Enter = 'mymod']:\n> ";
     std::string m;
     std::getline(std::cin, m);
-    args.modId = m.empty() ? "darkaddons" : m;
+    args.modId = m.empty() ? "mymod" : m;
 
     std::cout << "Enter model name [Enter = use filename]:\n> ";
     std::string n;
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::cout << "╔══════════════════════════════════════╗\n"
-            << "║   Minecraft Voxelizer  v1.3.0        ║\n"
+            << "║   Minecraft Voxelizer  v1.4.0        ║\n"
             << "╚══════════════════════════════════════╝\n\n";
 
     CliArgs args;

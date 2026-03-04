@@ -2,7 +2,7 @@
 
 Converts 3D model files (`.obj`, `.gltf`, `.glb`) into Minecraft item model JSON + texture atlas PNG, ready to drop into a resource pack.
 
-You may consider using the UI one https://github.com/DarkLian/mc-voxelizer-gui
+You may consider using the GUI: https://github.com/DarkLian/mc-voxelizer-gui
 
 ---
 
@@ -13,21 +13,41 @@ quality = 7, density = 16, originally from .gltf model
 
 ## Usage
 
-Double click the .exe
+Double click the `.exe` — two versions are provided, each using a different optimization strategy (see [Optimization modes](#optimization-modes) below).
+
+---
+
+## Optimization modes
+
+Two binaries are shipped. They differ only in how the greedy mesher builds geometry:
+
+| Binary | Strategy | Elements | PNG size |
+|--------|----------|----------|----------|
+| `mc_voxelizer_element` | **Element count** — 3-D box merging across all axes | Fewer | Larger |
+| `mc_voxelizer_atlas` | **Atlas** — dual-pass 2-D greedy per face direction | More | Smaller |
+
+**Element count** works by greedily merging solid voxels into 3-D boxes (AABB packing). Interior boxes that have no exposed faces are discarded entirely.
+
+**Atlas** runs two greedy passes per slice (u-first, then v-first) and keeps whichever yields fewer rectangles for that slice. This reduces atlas pixel waste at the cost of more individual elements.
+
+### Which one to use
+
+Choose Element count first. If errors occur, you may consider lowering quality, density or use Atlas instead.
+(Usually caused by png being too large)
 
 ---
 
 ## Quality levels
 
-| Quality | Grid | Voxel size | Notes |
-|---------|------|------------|-------|
-| 1 | 16³ | 1.0 MC unit | Fastest, very blocky |
-| 2 | 24³ | 0.67 | |
-| 3 | 32³ | 0.5 | Recommended default |
-| 4 | 48³ | 0.33 | |
-| 5 | 64³ | 0.25 | Good detail |
-| 6 | 96³ | 0.167 | 
-| 7 | 128³ | 0.125 | Slowest
+| Quality | Grid | Voxel size |
+|---------|------|------------|
+| 1 | 16³ | 1.0 MC unit |
+| 2 | 24³ | 0.67 |
+| 3 | 32³ | 0.5 |
+| 4 | 48³ | 0.33 |
+| 5 | 64³ | 0.25 |
+| 6 | 96³ | 0.167 |
+| 7 | 128³ | 0.125 |
 
 Higher quality = finer voxels = more surface detail. The greedy mesher keeps element counts manageable even at quality 7 by merging adjacent same-facing voxels into single rectangles.
 
@@ -36,7 +56,6 @@ Higher quality = finer voxels = more surface detail. The greedy mesher keeps ele
 ## Texture density
 
 Density controls how many pixels each voxel face gets in the output atlas. The sweet spot is:
-
 ```
 optimal_density = source_texture_size / grid_resolution
 ```
@@ -53,25 +72,15 @@ Going above this upscales bilinearly — no extra detail is gained and the PNG g
 ---
 
 ## Output
-
 ```
 output/
   <n>.json    Minecraft item model
   <n>.png     Texture atlas
 ```
 
-### Output JSON format
-
-```json
-{
-  "textures": { "0": "<modid>:item/<n>" },
-  "display":  { ... },
-  "elements": [ ... ]
-}
-```
-
-- Keys are ordered: `textures` → `display` → `elements`, so display settings are easy to find without scrolling past thousands of element entries
-- Primitive arrays (coordinates, UVs) are written inline to keep file size small
+Place them in your resource pack:
+- `assets/<modid>/models/item/<n>.json`
+- `assets/<modid>/textures/item/<n>.png`
 
 ---
 
@@ -88,13 +97,9 @@ output/
 1. **Load** — OBJ or glTF/GLB loaded with all materials and textures
 2. **Normalize** — mesh scaled uniformly to fit MC's `[0, 16]` coordinate space, snapped to floor
 3. **Voxelize** — surface voxelization via SAT triangle–AABB overlap tests. Each voxel stores one triangle index per face direction (6 slots). Within each slot the closest triangle wins by distance to its plane
-4. **Greedy mesh** — adjacent exposed voxel faces merged into maximal rectangles (geometry-only). Fewer elements = better MC performance
+4. **Greedy mesh** — adjacent exposed voxel faces merged using the selected optimization strategy (see above). Fewer elements = better MC performance
 5. **Bake** — for each atlas pixel, the owning voxel's stored triangle is looked up, barycentric coordinates computed at the pixel's exact 3D position, and the original mesh texture sampled at the interpolated UV
 6. **Write** — atlas PNG and compact model JSON written to output directory
-
-## Texture atlas
-
-Atlas dimensions use independent power-of-2 per axis (non-square). The packer estimates a square-ish row width from `sqrt(totalPixels)` to keep both axes balanced. Non-square power-of-2 textures (e.g. `4096×2048`) are fully supported by Minecraft 1.13+.
 
 Approximate atlas sizes at common settings:
 
@@ -113,12 +118,10 @@ Approximate atlas sizes at common settings:
 Check the loader output for texture warnings. For OBJ, ensure the `.mtl` file and textures are in the same directory. For glTF, embedded (`.glb`) always works; external textures must be alongside the `.gltf`.
 
 **PNG is very large or slow to generate**
-Reduce `--density`. The sweet spot is `texture_size / grid_resolution` — anything above adds no detail.
+Reduce `--density`. The sweet spot is `texture_size / grid_resolution` — anything above adds no detail. If using the element count binary, also consider switching to the atlas binary which produces a smaller PNG.
 
-**Model renders purple/black in-game**
-The texture PNG is missing or in the wrong path. Verify `assets/<modid>/textures/item/<n>.png` exists in the pack.
+**Model becomes black in Blockbench**
+Can occur with high quality + density models. Consider using lower quality/density or Atlas instead. 
 
-**Resource pack fails to reload intermittently**
-MC caches compiled model data. Remove and re-add the resource pack, or delete `.minecraft/assets/` to force a fresh build.
-
-**Model becomes black in blockbench** This could occur if you are using high quality and density model. Try restarting blockbench and reload.
+**Too many elements / hitting MC element limit**
+Switch to the element count binary (`mc_voxelizer_element`), which uses 3-D box merging to minimize element count. Enabling solid fill (`--solid`) also helps as it allows more interior voxels to be merged into large boxes.

@@ -1,7 +1,7 @@
 #include "io/MeshLoader.hpp"
 #include "pipeline/Normalizer.hpp"
 #include "pipeline/Voxelizer.hpp"
-#include "pipeline/GreedyMesher.hpp"
+#include "GreedyMesher.hpp"
 #include "core/TextureAtlas.hpp"
 #include "minecraft/McModel.hpp"
 
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::cout << "╔══════════════════════════════════════╗\n"
-            << "║   Minecraft Voxelizer  v1.4.0        ║\n"
+            << "║   Minecraft Voxelizer  v1.5.0        ║\n"
             << "╚══════════════════════════════════════╝\n\n";
 
     CliArgs args;

@@ -1,4 +1,4 @@
-#include "pipeline/GreedyMesher.hpp"
+#include "GreedyMesher.hpp"
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -46,19 +46,28 @@ void GreedyMesher::meshFace(const VoxelGrid &grid,
     int sweepAxis, uAxis, vAxis;
     switch (face) {
         case Face::Down:
-        case Face::Up:    sweepAxis = 1; uAxis = 0; vAxis = 2; break;
+        case Face::Up: sweepAxis = 1;
+            uAxis = 0;
+            vAxis = 2;
+            break;
         case Face::North:
-        case Face::South: sweepAxis = 2; uAxis = 0; vAxis = 1; break;
+        case Face::South: sweepAxis = 2;
+            uAxis = 0;
+            vAxis = 1;
+            break;
         case Face::West:
-        case Face::East:  sweepAxis = 0; uAxis = 2; vAxis = 1; break;
+        case Face::East: sweepAxis = 0;
+            uAxis = 2;
+            vAxis = 1;
+            break;
     }
 
     int dims[3] = {grid.resX, grid.resY, grid.resZ};
     int sweepDim = dims[sweepAxis];
-    int uDim     = dims[uAxis];
-    int vDim     = dims[vAxis];
+    int uDim = dims[uAxis];
+    int vDim = dims[vAxis];
 
-    float voxelSize  = 16.0f / static_cast<float>(sweepDim);
+    float voxelSize = 16.0f / static_cast<float>(sweepDim);
     float voxelSizeU = 16.0f / static_cast<float>(uDim);
     float voxelSizeV = 16.0f / static_cast<float>(vDim);
 
@@ -71,13 +80,15 @@ void GreedyMesher::meshFace(const VoxelGrid &grid,
     auto toXYZ = [&](int s, int u, int v) -> glm::ivec3 {
         glm::ivec3 xyz;
         xyz[sweepAxis] = s;
-        xyz[uAxis]     = u;
-        xyz[vAxis]     = v;
+        xyz[uAxis] = u;
+        xyz[vAxis] = v;
         return xyz;
     };
 
     // Tiny POD rect used during the two passes (no Quad heap overhead)
-    struct Rect { int u0, v0, u1, v1; };
+    struct Rect {
+        int u0, v0, u1, v1;
+    };
 
     for (int s = 0; s < sweepDim; s++) {
         // ── Build boolean exposure mask for this slice ─────────────────────
@@ -85,7 +96,7 @@ void GreedyMesher::meshFace(const VoxelGrid &grid,
             for (int u = 0; u < uDim; u++) {
                 glm::ivec3 pos = toXYZ(s, u, v);
                 exposed[u + v * uDim] =
-                    grid.isFaceExposed(pos.x, pos.y, pos.z, face) ? 1 : 0;
+                        grid.isFaceExposed(pos.x, pos.y, pos.z, face) ? 1 : 0;
             }
         }
 
@@ -111,7 +122,8 @@ void GreedyMesher::meshFace(const VoxelGrid &grid,
                     bool rowOk = true;
                     for (int u = u0; u < u1; u++) {
                         if (consumedA[u + v1 * uDim] || !exposed[u + v1 * uDim]) {
-                            rowOk = false; break;
+                            rowOk = false;
+                            break;
                         }
                     }
                     if (!rowOk) break;
@@ -148,7 +160,8 @@ void GreedyMesher::meshFace(const VoxelGrid &grid,
                     bool colOk = true;
                     for (int v = v0; v < v1; v++) {
                         if (consumedB[u1 + v * uDim] || !exposed[u1 + v * uDim]) {
-                            colOk = false; break;
+                            colOk = false;
+                            break;
                         }
                     }
                     if (!colOk) break;
@@ -165,30 +178,30 @@ void GreedyMesher::meshFace(const VoxelGrid &grid,
 
         // ── Choose the pass that yielded fewer rectangles ──────────────────
         const std::vector<Rect> &best =
-            (rectsA.size() <= rectsB.size()) ? rectsA : rectsB;
+                (rectsA.size() <= rectsB.size()) ? rectsA : rectsB;
 
         // ── Emit Quads in MC space ─────────────────────────────────────────
-        for (const auto &r : best) {
+        for (const auto &r: best) {
             glm::vec3 from(0), to(0);
             from[sweepAxis] = s * voxelSize;
-            to[sweepAxis]   = (s + 1) * voxelSize;
-            from[uAxis]     = r.u0 * voxelSizeU;
-            to[uAxis]       = r.u1 * voxelSizeU;
-            from[vAxis]     = r.v0 * voxelSizeV;
-            to[vAxis]       = r.v1 * voxelSizeV;
+            to[sweepAxis] = (s + 1) * voxelSize;
+            from[uAxis] = r.u0 * voxelSizeU;
+            to[uAxis] = r.u1 * voxelSizeU;
+            from[vAxis] = r.v0 * voxelSizeV;
+            to[vAxis] = r.v1 * voxelSizeV;
 
             Quad q{};
-            q.from       = from;
-            q.to         = to;
-            q.face       = face;
-            q.sweepAxis  = sweepAxis;
-            q.uAxis      = uAxis;
-            q.vAxis      = vAxis;
+            q.from = from;
+            q.to = to;
+            q.face = face;
+            q.sweepAxis = sweepAxis;
+            q.uAxis = uAxis;
+            q.vAxis = vAxis;
             q.sweepLayer = s;
-            q.uStart     = r.u0;
-            q.vStart     = r.v0;
-            q.uCount     = r.u1 - r.u0;
-            q.vCount     = r.v1 - r.v0;
+            q.uStart = r.u0;
+            q.vStart = r.v0;
+            q.uCount = r.u1 - r.u0;
+            q.vCount = r.v1 - r.v0;
             out.push_back(q);
         }
     }

@@ -38,14 +38,14 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
                                const VoxelGrid &grid,
                                const Mesh &srcMesh) {
     // ── Which voxel owns this pixel? ──────────────────────────────────────────
-    int vu = q.uStart + pu / density;  // voxel coordinate on uAxis
-    int vv = q.vStart + pv / density;  // voxel coordinate on vAxis
-    int vs = q.sweepLayer;             // voxel coordinate on sweepAxis
+    int vu = q.uStart + pu / density; // voxel coordinate on uAxis
+    int vv = q.vStart + pv / density; // voxel coordinate on vAxis
+    int vs = q.sweepLayer; // voxel coordinate on sweepAxis
 
     glm::ivec3 voxel;
     voxel[q.sweepAxis] = vs;
-    voxel[q.uAxis]     = vu;
-    voxel[q.vAxis]     = vv;
+    voxel[q.uAxis] = vu;
+    voxel[q.vAxis] = vv;
 
     // ── Try to bake from the stored triangle ──────────────────────────────────
     int triIdx = grid.getTriIndex(voxel.x, voxel.y, voxel.z, q.face);
@@ -70,8 +70,8 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
 
             glm::vec3 pixelPos(0.0f);
             pixelPos[q.sweepAxis] = (vs + 0.5f) * voxelSizeS;
-            pixelPos[q.uAxis]     = (vu + fu) * voxelSizeU;
-            pixelPos[q.vAxis]     = (vv + fv) * voxelSizeV;
+            pixelPos[q.uAxis] = (vu + fu) * voxelSizeU;
+            pixelPos[q.vAxis] = (vv + fv) * voxelSizeV;
 
             auto verts = srcMesh.getTriangleVertices(tri);
             const glm::vec3 &p0 = verts[0].position;
@@ -117,42 +117,44 @@ glm::vec3 McModel::samplePixel(const GreedyMesher::Quad &q,
 // identical float values — safe to memcpy-hash without epsilon tolerance.
 // ─────────────────────────────────────────────────────────────────────────────
 namespace {
+    struct AabbKey {
+        uint32_t fx, fy, fz; // from.x/y/z bits
+        uint32_t tx, ty, tz; // to.x/y/z bits
 
-struct AabbKey {
-    uint32_t fx, fy, fz;  // from.x/y/z bits
-    uint32_t tx, ty, tz;  // to.x/y/z bits
+        bool operator==(const AabbKey &o) const {
+            return fx == o.fx && fy == o.fy && fz == o.fz &&
+                   tx == o.tx && ty == o.ty && tz == o.tz;
+        }
+    };
 
-    bool operator==(const AabbKey &o) const {
-        return fx == o.fx && fy == o.fy && fz == o.fz &&
-               tx == o.tx && ty == o.ty && tz == o.tz;
+    struct AabbKeyHash {
+        size_t operator()(const AabbKey &k) const noexcept {
+            // FNV-1a style mix over the 6 uint32 words
+            size_t h = 14695981039346656037ULL;
+            auto mix = [&](uint32_t v) {
+                h ^= static_cast<size_t>(v);
+                h *= 1099511628211ULL;
+            };
+            mix(k.fx);
+            mix(k.fy);
+            mix(k.fz);
+            mix(k.tx);
+            mix(k.ty);
+            mix(k.tz);
+            return h;
+        }
+    };
+
+    AabbKey makeKey(const glm::vec3 &from, const glm::vec3 &to) {
+        AabbKey k{};
+        std::memcpy(&k.fx, &from.x, 4);
+        std::memcpy(&k.fy, &from.y, 4);
+        std::memcpy(&k.fz, &from.z, 4);
+        std::memcpy(&k.tx, &to.x, 4);
+        std::memcpy(&k.ty, &to.y, 4);
+        std::memcpy(&k.tz, &to.z, 4);
+        return k;
     }
-};
-
-struct AabbKeyHash {
-    size_t operator()(const AabbKey &k) const noexcept {
-        // FNV-1a style mix over the 6 uint32 words
-        size_t h = 14695981039346656037ULL;
-        auto mix = [&](uint32_t v) {
-            h ^= static_cast<size_t>(v);
-            h *= 1099511628211ULL;
-        };
-        mix(k.fx); mix(k.fy); mix(k.fz);
-        mix(k.tx); mix(k.ty); mix(k.tz);
-        return h;
-    }
-};
-
-AabbKey makeKey(const glm::vec3 &from, const glm::vec3 &to) {
-    AabbKey k{};
-    std::memcpy(&k.fx, &from.x, 4);
-    std::memcpy(&k.fy, &from.y, 4);
-    std::memcpy(&k.fz, &from.z, 4);
-    std::memcpy(&k.tx, &to.x,   4);
-    std::memcpy(&k.ty, &to.y,   4);
-    std::memcpy(&k.tz, &to.z,   4);
-    return k;
-}
-
 } // anonymous namespace
 
 // ── Build ─────────────────────────────────────────────────────────────────────
@@ -170,16 +172,16 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     // before any allocations happen.
     {
         long long totalPx = 0;
-        for (const auto &q : quads)
+        for (const auto &q: quads)
             totalPx += static_cast<long long>(std::max(1, q.uCount * density))
-                     * std::max(1, q.vCount * density);
+                    * std::max(1, q.vCount * density);
         atlas.hintTotalPixels(static_cast<int>(std::min(totalPx, static_cast<long long>(INT_MAX))));
     }
 
     // Phase 1: allocate atlas regions (one per quad — unchanged)
     std::vector<TextureAtlas::Region> regions;
     regions.reserve(quads.size());
-    for (const auto &q : quads) {
+    for (const auto &q: quads) {
         int pw = std::max(1, q.uCount * density);
         int ph = std::max(1, q.vCount * density);
         regions.push_back(atlas.allocate(pw, ph));
@@ -233,7 +235,7 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     std::unordered_map<AabbKey, int, AabbKeyHash> aabbIndex;
     aabbIndex.reserve(intermediate.size());
 
-    for (auto &el : intermediate) {
+    for (auto &el: intermediate) {
         AabbKey key = makeKey(el.from, el.to);
 
         auto it = aabbIndex.find(key);
@@ -247,27 +249,27 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
             // because the GreedyMesher emits at most one quad per face
             // direction per sweep layer.
             McElement &target = elements_[it->second];
-            for (auto &[name, face] : el.faces)
+            for (auto &[name, face]: el.faces)
                 target.faces[name] = std::move(face);
         }
     }
 
     int before = static_cast<int>(intermediate.size());
-    int after  = static_cast<int>(elements_.size());
+    int after = static_cast<int>(elements_.size());
     std::cout << "[McModel] Element packing: " << before << " quads → "
-              << after << " elements  ("
-              << (before - after) << " saved, "
-              << (100 * (before - after) / std::max(1, before)) << "% reduction)\n";
+            << after << " elements  ("
+            << (before - after) << " saved, "
+            << (100 * (before - after) / std::max(1, before)) << "% reduction)\n";
 }
 
 McElement McModel::buildElement(const GreedyMesher::Quad &quad,
                                 const TextureAtlas::UVRect &uv) {
     McElement el;
     el.from = quad.from;
-    el.to   = quad.to;
+    el.to = quad.to;
 
     McFace face;
-    face.uv      = uv;
+    face.uv = uv;
     face.texture = "#0";
     el.faces[McConstants::faceName(quad.face)] = face;
     return el;
@@ -304,13 +306,16 @@ static void writeCompactStr(std::string &out,
         out += '}';
     } else if (j.is_array()) {
         bool allPrimitive = true;
-        for (const auto &elem : j)
-            if (elem.is_object() || elem.is_array()) { allPrimitive = false; break; }
+        for (const auto &elem: j)
+            if (elem.is_object() || elem.is_array()) {
+                allPrimitive = false;
+                break;
+            }
 
         if (allPrimitive) {
             out += '[';
             bool first = true;
-            for (const auto &elem : j) {
+            for (const auto &elem: j) {
                 if (!first) out += ", ";
                 first = false;
                 if (elem.is_number_float())
@@ -331,7 +336,7 @@ static void writeCompactStr(std::string &out,
             out += "[\n";
             const std::string tab1(indent + 1, '\t');
             bool first = true;
-            for (const auto &elem : j) {
+            for (const auto &elem: j) {
                 if (!first) out += ",\n";
                 first = false;
                 out += tab1;
@@ -367,54 +372,78 @@ void McModel::writeJson(const std::string &outputPath) const {
     root["textures"]["0"] = texturePath_;
 
     root["display"] = {
-        {"gui", {
-            {"rotation", {McConstants::DISPLAY.guiRotX, McConstants::DISPLAY.guiRotY, McConstants::DISPLAY.guiRotZ}},
-            {"scale",    {McConstants::DISPLAY.guiScaleXY, McConstants::DISPLAY.guiScaleXY, McConstants::DISPLAY.guiScaleXY}}
-        }},
-        {"ground", {
-            {"translation", {0.0f, McConstants::DISPLAY.groundTransY, 0.0f}},
-            {"scale",       {McConstants::DISPLAY.groundScale, McConstants::DISPLAY.groundScale, McConstants::DISPLAY.groundScale}}
-        }},
-        {"thirdperson_righthand", {
-            {"rotation",    {McConstants::DISPLAY.tpRotX, McConstants::DISPLAY.tpRotY, 0.0f}},
-            {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
-            {"scale",       {McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale}}
-        }},
-        {"thirdperson_lefthand", {
-            {"rotation",    {McConstants::DISPLAY.tpRotX, McConstants::DISPLAY.tpRotY, 0.0f}},
-            {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
-            {"scale",       {McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale}}
-        }},
-        {"firstperson_righthand", {
-            {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
-            {"scale",    {McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale}}
-        }},
-        {"firstperson_lefthand", {
-            {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
-            {"scale",    {McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale}}
-        }}
+        {
+            "gui", {
+                {
+                    "rotation",
+                    {McConstants::DISPLAY.guiRotX, McConstants::DISPLAY.guiRotY, McConstants::DISPLAY.guiRotZ}
+                },
+                {
+                    "scale",
+                    {McConstants::DISPLAY.guiScaleXY, McConstants::DISPLAY.guiScaleXY, McConstants::DISPLAY.guiScaleXY}
+                }
+            }
+        },
+        {
+            "ground", {
+                {"translation", {0.0f, McConstants::DISPLAY.groundTransY, 0.0f}},
+                {
+                    "scale",
+                    {
+                        McConstants::DISPLAY.groundScale, McConstants::DISPLAY.groundScale,
+                        McConstants::DISPLAY.groundScale
+                    }
+                }
+            }
+        },
+        {
+            "thirdperson_righthand", {
+                {"rotation", {McConstants::DISPLAY.tpRotX, McConstants::DISPLAY.tpRotY, 0.0f}},
+                {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
+                {"scale", {McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale}}
+            }
+        },
+        {
+            "thirdperson_lefthand", {
+                {"rotation", {McConstants::DISPLAY.tpRotX, McConstants::DISPLAY.tpRotY, 0.0f}},
+                {"translation", {0.0f, McConstants::DISPLAY.tpTransY, 0.0f}},
+                {"scale", {McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale, McConstants::DISPLAY.tpScale}}
+            }
+        },
+        {
+            "firstperson_righthand", {
+                {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
+                {"scale", {McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale}}
+            }
+        },
+        {
+            "firstperson_lefthand", {
+                {"rotation", {0.0f, McConstants::DISPLAY.fpRotY, 0.0f}},
+                {"scale", {McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale, McConstants::DISPLAY.fpScale}}
+            }
+        }
     };
 
     // ── Elements ──────────────────────────────────────────────────────────────
     ojson elementsArr = ojson::array();
-    for (const auto &el : elements_) {
+    for (const auto &el: elements_) {
         ojson elem;
         elem["from"] = {el.from.x, el.from.y, el.from.z};
-        elem["to"]   = {el.to.x,   el.to.y,   el.to.z};
+        elem["to"] = {el.to.x, el.to.y, el.to.z};
 
         if (el.hasRotation) {
             elem["rotation"] = {
-                {"angle",  el.rotation.angle},
-                {"axis",   std::string(1, el.rotation.axis)},
+                {"angle", el.rotation.angle},
+                {"axis", std::string(1, el.rotation.axis)},
                 {"origin", {el.rotation.origin.x, el.rotation.origin.y, el.rotation.origin.z}},
                 {"rescale", el.rotation.rescale}
             };
         }
 
         ojson facesObj;
-        for (const auto &[faceName, mcFace] : el.faces) {
+        for (const auto &[faceName, mcFace]: el.faces) {
             ojson fj;
-            fj["uv"]      = {mcFace.uv[0], mcFace.uv[1], mcFace.uv[2], mcFace.uv[3]};
+            fj["uv"] = {mcFace.uv[0], mcFace.uv[1], mcFace.uv[2], mcFace.uv[3]};
             fj["texture"] = mcFace.texture;
             if (mcFace.tintindex >= 0)
                 fj["tintindex"] = mcFace.tintindex;
@@ -437,18 +466,18 @@ void McModel::writeJson(const std::string &outputPath) const {
     out.close();
 
     std::cout << "[McModel] Wrote " << elements_.size()
-              << " elements to: " << outputPath << "\n";
+            << " elements to: " << outputPath << "\n";
 }
 
 void McModel::printStats() const {
     int count = elementCount();
     std::cout << "[McModel] MC elements (JSON cubes): " << count << "\n"
-              << "          NOTE: This is NOT the voxel count. Elements are\n"
-              << "          merged voxel faces — higher quality CAN produce\n"
-              << "          fewer elements when large flat regions merge.\n";
+            << "          NOTE: This is NOT the voxel count. Elements are\n"
+            << "          merged voxel faces — higher quality CAN produce\n"
+            << "          fewer elements when large flat regions merge.\n";
     if (count > McConstants::ELEMENT_PERF_THRESHOLD)
         std::cout << "[McModel] WARNING: " << count << " elements is very high"
-                  << " — may cause in-game lag. Consider reducing --quality or --density.\n";
+                << " — may cause in-game lag. Consider reducing --quality or --density.\n";
     else if (count > McConstants::ELEMENT_WARN_THRESHOLD)
         std::cout << "[McModel] Note: " << count << " elements is high but should load fine.\n";
     else

@@ -4,7 +4,7 @@
 #include "core/TextureAtlas.hpp"
 #include "core/VoxelGrid.hpp"
 #include "core/Mesh.hpp"
-#include "pipeline/GreedyMesher.hpp"
+#include "GreedyMesher.hpp"
 #include <vector>
 #include <string>
 

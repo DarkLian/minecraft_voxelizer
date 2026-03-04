@@ -49,59 +49,85 @@ FetchContent_GetProperties(fpng SOURCE_DIR fpng_SOURCE_DIR)
 # ── OpenMP ─────────────────────────────────────────────────────────────────────
 find_package(OpenMP)
 
-file(GLOB_RECURSE SOURCES
-        "src/*.cpp"
-)
+# ── Version ────────────────────────────────────────────────────────────────────
+set(APP_VERSION "v1.5.0")
 
-# fpng is a single .cpp file that must be compiled into the project.
-# FPNG_NO_SSE disables SSE4.1 intrinsics — avoids MinGW "target specific
-# option mismatch" errors while still being significantly faster than stb.
-add_executable(mc_voxelizer ${SOURCES} ${fpng_SOURCE_DIR}/src/fpng.cpp app.rc)
+# ── Install / output dir ───────────────────────────────────────────────────────
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# Define your version
-set(APP_VERSION "v1.4.0")
+# ── Shared sources — exclude all variant files ────────────────────────────────
+file(GLOB_RECURSE SHARED_SOURCES "src/*.cpp")
+list(FILTER SHARED_SOURCES EXCLUDE REGEX ".*/pipeline/(atlas|element)/.*\\.cpp$")
+list(FILTER SHARED_SOURCES EXCLUDE REGEX ".*McModel_(atlas|element)\\.cpp$")
 
-# Tell CMake to rename the output file
-set_target_properties(mc_voxelizer PROPERTIES OUTPUT_NAME "mc_voxelizer-${APP_VERSION}")
+# ── Shared config macro ────────────────────────────────────────────────────────
+macro(configure_voxelizer_target TARGET_NAME PIPELINE_VARIANT_DIR)
+    target_compile_definitions(${TARGET_NAME} PRIVATE FPNG_NO_SSE=1)
 
-target_compile_definitions(mc_voxelizer PRIVATE FPNG_NO_SSE=1)
+    # PIPELINE_VARIANT_DIR must come BEFORE src/ so its GreedyMesher.hpp
+    # shadows the include path and gets picked up instead of any stale one.
+    target_include_directories(${TARGET_NAME} PRIVATE
+            ${PIPELINE_VARIANT_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            src/
+            ${stb_SOURCE_DIR}
+            ${tinygltf_SOURCE_DIR}
+            ${fpng_SOURCE_DIR}/src
+    )
 
-target_include_directories(mc_voxelizer PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        src/
-        ${stb_SOURCE_DIR}
-        ${tinygltf_SOURCE_DIR}
-        ${fpng_SOURCE_DIR}/src
-)
+    target_link_libraries(${TARGET_NAME} PRIVATE
+            glm::glm
+            nlohmann_json::nlohmann_json
+            tinyobjloader
+            tinygltf
+    )
 
-target_link_libraries(mc_voxelizer PRIVATE
-        glm::glm
-        nlohmann_json::nlohmann_json
-        tinyobjloader
-        tinygltf
-)
-
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(mc_voxelizer PRIVATE OpenMP::OpenMP_CXX)
-    # MinGW with static linking needs libgomp explicitly
-    if(WIN32)
-        target_link_libraries(mc_voxelizer PRIVATE -lgomp)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(${TARGET_NAME} PRIVATE OpenMP::OpenMP_CXX)
+        if(WIN32)
+            target_link_libraries(${TARGET_NAME} PRIVATE -lgomp)
+        endif()
     endif()
+
+    target_compile_options(${TARGET_NAME} PRIVATE
+            $<$<CONFIG:Release>:-O3>
+            $<$<CONFIG:Debug>:-g -Wall -Wextra>
+    )
+
+    if(WIN32)
+        target_link_options(${TARGET_NAME} PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+endmacro()
+
+# ── Element-count optimization ─────────────────────────────────────────────────
+add_executable(mc_voxelizer_element
+        ${SHARED_SOURCES}
+        ${fpng_SOURCE_DIR}/src/fpng.cpp
+        app.rc
+        src/pipeline/element/GreedyMesher.cpp
+        src/minecraft/McModel_element.cpp
+)
+set_target_properties(mc_voxelizer_element PROPERTIES
+        OUTPUT_NAME "mc_voxelizer_element-${APP_VERSION}")
+configure_voxelizer_target(mc_voxelizer_element
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/pipeline/element)
+
+# ── Atlas optimization ─────────────────────────────────────────────────────────
+add_executable(mc_voxelizer_atlas
+        ${SHARED_SOURCES}
+        ${fpng_SOURCE_DIR}/src/fpng.cpp
+        app.rc
+        src/pipeline/atlas/GreedyMesher.cpp
+        src/minecraft/McModel_atlas.cpp
+)
+set_target_properties(mc_voxelizer_atlas PROPERTIES
+        OUTPUT_NAME "mc_voxelizer_atlas-${APP_VERSION}")
+configure_voxelizer_target(mc_voxelizer_atlas
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/pipeline/atlas)
+
+# ── OpenMP status messages ─────────────────────────────────────────────────────
+if(OpenMP_CXX_FOUND)
     message(STATUS "OpenMP found — parallel baking enabled")
 else()
     message(WARNING "OpenMP not found — baking will be single-threaded")
 endif()
-
-# Optimizations for release builds
-target_compile_options(mc_voxelizer PRIVATE
-        $<$<CONFIG:Release>:-O3>
-        $<$<CONFIG:Debug>:-g -Wall -Wextra>
-)
-
-# Force static linking on Windows so it doesn't require MinGW DLLs to run
-if(WIN32)
-    target_link_options(mc_voxelizer PRIVATE -static -static-libgcc -static-libstdc++)
-endif()
-
-# ── Install / output dir ───────────────────────────────────────────────────────
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

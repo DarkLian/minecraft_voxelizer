@@ -1,7 +1,6 @@
 #include "pipeline/GreedyMesher.hpp"
 #include <iostream>
 #include <vector>
-#include <numeric>
 
 GreedyMesher::GreedyMesher(Config cfg) : cfg_(cfg) {}
 

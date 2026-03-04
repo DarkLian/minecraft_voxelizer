@@ -9,9 +9,7 @@
 #include <cmath>
 #include <utility>
 #include <unordered_map>
-#include <cstring>
 #ifdef _OPENMP
-#include <omp.h>
 #endif
 
 using json = nlohmann::json;
@@ -178,7 +176,7 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
     // already has identical from/to (the full box extents). AABB packing
     // therefore trivially groups all faces of each box into one McElement
     // with no extra work beyond what was already done for the v1.x
-    // multi-face optimisation.
+    // multi-face optimization.
     //
     // For fully interior boxes (zero exposed faces), the GreedyMesher already
     // emits zero quads, so they never appear here. No wasted elements.
@@ -202,7 +200,7 @@ void McModel::build(const std::vector<GreedyMesher::Quad> &quads,
               << " quads → " << elements_.size() << " elements  ("
               << (intermediate.size() - elements_.size()) << " saved, "
               << (100 * (intermediate.size() - elements_.size())
-                  / std::max(size_t(1), intermediate.size())) << "% reduction)\n";
+                  / std::max(static_cast<size_t>(1), intermediate.size())) << "% reduction)\n";
 }
 
 // ── buildElement ──────────────────────────────────────────────────────────────

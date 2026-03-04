@@ -49,7 +49,7 @@ Choose Element count first. If errors occur, you may consider lowering quality, 
 | 6 | 96³ | 0.167 |
 | 7 | 128³ | 0.125 |
 
-Higher quality = finer voxels = more surface detail. The greedy mesher keeps element counts manageable even at quality 7 by merging adjacent same-facing voxels into single rectangles.
+Higher quality = finer voxels = more surface detail. 
 
 ---
 

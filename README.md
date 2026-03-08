@@ -4,6 +4,8 @@ Converts 3D model files (`.obj`, `.gltf`, `.glb`) into Minecraft item model JSON
 
 You may consider using the GUI: https://github.com/DarkLian/mc-voxelizer-gui
 
+I recommend using https://github.com/Godlander/objmc instead. This project was a mere practice for my C++ final project.
+
 ---
 
 ## Showcase
